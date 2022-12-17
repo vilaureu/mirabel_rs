@@ -1,0 +1,17 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+authors = ["vilaureu"]
+publish = false
+
+[dependencies]
+# mirabel is simply a dependency.
+mirabel = { path = ".." }
+
+[lib]
+# This creates a dynamic library which can be loaded into mirabel.
+crate-type = ["cdylib"]
+
+# Profile settings are in the root Cargo.toml.
+# Copy them here when using this crate as a template.
