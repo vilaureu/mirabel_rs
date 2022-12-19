@@ -16,7 +16,7 @@ skia = ["skia-safe", "gl_generator", "frontend"]
 
 [dependencies.mirabel_sys]
 git = "https://github.com/vilaureu/mirabel_sys"
-rev = "f2acf8e58d7dcff5ef8889ce3c9283b6c7a4fb08"
+rev = "204d8e102c4cce316d69eae7e044534a3e7a6f5a"
 
 [dependencies.skia-safe]
 version = "0.57"
