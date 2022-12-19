@@ -4,7 +4,7 @@ use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
     os::raw::{c_char, c_void},
-    ptr::{addr_of, addr_of_mut, null, null_mut},
+    ptr::{addr_of, addr_of_mut, null_mut},
 };
 
 use crate::sdl_event::SDLEventEnum;
@@ -32,7 +32,9 @@ pub use mirabel_sys::sys::{frontend_feature_flags, frontend_methods, game_featur
 /// which should be exported.
 /// These can be generated using [`create_frontend_methods`].
 /// This method can only be called once but with multiple methods.
-/// It also creates the `plugin_get_frontend_capi_version` function for you.
+/// It also creates the `plugin_init_frontend`,
+/// `plugin_get_frontend_capi_version`, and `plugin_cleanup_frontend` functions
+/// for you.
 ///
 /// # Example
 /// ```ignore
@@ -152,11 +154,7 @@ pub trait FrontendMethods: Sized {
 
     #[doc(hidden)]
     unsafe extern "C" fn get_last_error_wrapped(frontend: *mut sys::frontend) -> *const c_char {
-        match Aux::<Self>::get(frontend).error {
-            ErrorString::None => null(),
-            ErrorString::Static(s) => s.into(),
-            ErrorString::Dynamic(ref s) => s.as_ptr(),
-        }
+        (&Aux::<Self>::get(frontend).error).into()
     }
 
     #[doc(hidden)]

@@ -1,4 +1,4 @@
-# _mirabel_rs_
+# mirabel_rs
 
 _mirabel_rs_ provides a Rust wrapper for writing
 [_mirabel_](https://github.com/RememberOfLife/mirabel) plugins.
