@@ -14,7 +14,7 @@ fn generate_gl() {
     use std::path::Path;
 
     let dest = env::var("OUT_DIR").unwrap();
-    let mut file = File::create(&Path::new(&dest).join("gl.rs")).unwrap();
+    let mut file = File::create(Path::new(&dest).join("gl.rs")).unwrap();
 
     // This needs to follow client.cpp in mirabel.
     Registry::new(Api::Gl, (3, 0), Profile::Core, Fallbacks::All, [])
