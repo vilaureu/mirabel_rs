@@ -29,7 +29,8 @@ jobs:
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
+            ~/.cargo/git/
+            ~/.cargo/.*
             target/
           key: "${{ runner.os }}-cargo-${{ steps.get-date.outputs.date }}\
             -${{ hashFiles('Cargo.toml') }}"
