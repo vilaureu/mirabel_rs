@@ -15,7 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        id: checkout
       - name: Install dependencies
+        id: dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libsdl2-dev
@@ -38,4 +40,11 @@ jobs:
         timeout-minutes: 5
         run: cargo test --verbose
       - name: Clippy
+        if: "!cancelled() && steps.dependencies.outcome == 'success'"
         run: cargo clippy --no-deps -- --deny=warnings
+      - name: Clippy (no default features)
+        if: "!cancelled() && steps.dependencies.outcome == 'success'"
+        run: cargo clippy --no-deps --no-default-features -- --deny=warnings
+      - name: Check formatting
+        if: "!cancelled() && steps.checkout.outcome == 'success'"
+        run: cargo fmt --check
