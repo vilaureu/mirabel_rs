@@ -6,6 +6,7 @@ use mirabel_sys::sys::{self, SDL_Event, SDL_WindowEvent};
 
 pub use mirabel_sys::sys::{
     SDL_KeyboardEvent, SDL_MouseButtonEvent, SDL_MouseMotionEvent, SDL_MouseWheelEvent,
+    SDL_BUTTON_LEFT, SDL_BUTTON_MIDDLE, SDL_BUTTON_RIGHT, SDL_BUTTON_X1, SDL_BUTTON_X2,
 };
 
 /// An _SDL_ event.
@@ -67,4 +68,22 @@ impl fmt::Debug for SDLEventEnum {
                 .finish(),
         }
     }
+}
+
+/// Calculates the _SDL_ button mask from the button index.
+///
+/// This can be used to replace the `SDL_BUTTON_*MASK` macros.
+///
+/// # Panics
+/// Panics if `button` is out of range for mask calculation.
+/// 
+/// # Example
+/// ```
+/// # use mirabel::sdl_event::*;
+/// let mask = sdl_button_mask(SDL_BUTTON_RIGHT);
+/// assert_eq!(0b100, mask);
+/// ```
+pub fn sdl_button_mask(button: u32) -> u32 {
+    assert!(button > u32::MIN && button <= u32::BITS);
+    1 << (button - 1)
 }
