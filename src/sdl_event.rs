@@ -76,7 +76,7 @@ impl fmt::Debug for SDLEventEnum {
 ///
 /// # Panics
 /// Panics if `button` is out of range for mask calculation.
-/// 
+///
 /// # Example
 /// ```
 /// # use mirabel::sdl_event::*;
