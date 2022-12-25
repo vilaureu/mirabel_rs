@@ -293,6 +293,7 @@ pub trait FrontendMethods: Sized {
 
 /// Extract the `self` of a frontend from [`data1`](sys::frontend::data1) with
 /// arbitrary lifetime.
+#[inline]
 unsafe fn get_self<'l, F>(frontend: *mut sys::frontend) -> &'l mut F {
     let data: *mut c_void = *addr_of_mut!((*frontend).data1);
     &mut *data.cast::<F>()
@@ -354,7 +355,7 @@ impl<'l> QueueManager<'l> {
 #[cfg(feature = "skia")]
 pub struct CanvasManager<'l> {
     surface: &'l mut Option<skia::Surface>,
-    display_data: &'l frontend_display_data,
+    pub display_data: &'l frontend_display_data,
 }
 
 #[cfg(feature = "skia")]
