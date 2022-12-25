@@ -41,38 +41,38 @@ impl FrontendMethods for Frontend {
     }
 
     /// Displays the runtime options using _ImGui_.
-    fn runtime_opts_display(mut frontend: Wrapped<Self>) -> Result<()> {
-        if !frontend.options.unwrap() {
+    fn runtime_opts_display(&mut self, ctx: Context<Self>) -> Result<()> {
+        if !ctx.options.unwrap() {
             return Ok(());
         }
 
         if imgui::button(cstr("Press Me!\0")) {
-            frontend.button_pressed = frontend.button_pressed.saturating_add(1);
+            self.button_pressed = self.button_pressed.saturating_add(1);
         }
         imgui::text(&format!(
             "Button was pressed {} times.",
-            frontend.button_pressed
+            self.button_pressed
         ));
-        imgui::check_box(cstr("Checkbox\0"), &mut frontend.checkbox);
+        imgui::check_box(cstr("Checkbox\0"), &mut self.checkbox);
 
-        imgui::begin_disabled(frontend.checkbox);
-        imgui::input_text(cstr("Text Input\0"), &mut frontend.text, 15);
-        imgui::slider_scalar(cstr("Slider\0"), &mut frontend.slider, 0f32, 42f32);
-        imgui::input_scalar(cstr("Scalar Input\0"), &mut frontend.scalar);
+        imgui::begin_disabled(self.checkbox);
+        imgui::input_text(cstr("Text Input\0"), &mut self.text, 15);
+        imgui::slider_scalar(cstr("Slider\0"), &mut self.slider, 0f32, 42f32);
+        imgui::input_scalar(cstr("Scalar Input\0"), &mut self.scalar);
         imgui::end_disabled();
 
         Ok(())
     }
 
     /// Process _mirabel_ events.
-    fn process_event(mut frontend: Wrapped<Self>, event: EventAny) -> Result<()> {
+    fn process_event(&mut self, _ctx: Context<Self>, event: EventAny) -> Result<()> {
         match event.to_rust() {
             EventEnum::GameLoadMethods(e) => {
-                frontend.game_name = format!("Loaded game: {}", unsafe {
+                self.game_name = format!("Loaded game: {}", unsafe {
                     cstr_to_rust_unchecked(*addr_of!((*e.methods).game_name))
                 })
             }
-            EventEnum::GameUnload(_) => frontend.game_name = Self::DEFAULT_GAME_NAME.to_string(),
+            EventEnum::GameUnload(_) => self.game_name = Self::DEFAULT_GAME_NAME.to_string(),
             _ => {}
         }
 
@@ -80,13 +80,13 @@ impl FrontendMethods for Frontend {
     }
 
     /// Process _SDL_ events.
-    fn process_input(mut frontend: Wrapped<Self>, event: SDLEventEnum) -> Result<()> {
+    fn process_input(&mut self, _ctx: Context<Self>, event: SDLEventEnum) -> Result<()> {
         match event {
             SDLEventEnum::MouseMotion(event) => {
-                frontend.mouse_location = Some((event.x, event.y).into());
+                self.mouse_location = Some((event.x, event.y).into());
             }
             SDLEventEnum::MouseButtonUp(event) => {
-                frontend.click_location = Some((event.x, event.y).into());
+                self.click_location = Some((event.x, event.y).into());
             }
             _ => (),
         };
@@ -95,46 +95,44 @@ impl FrontendMethods for Frontend {
     }
 
     /// Update the internal state.
-    fn update(mut frontend: Wrapped<Self>) -> Result<()> {
-        let Some(mouse) = frontend.mouse_location else {
+    fn update(&mut self, ctx: Context<Self>) -> Result<()> {
+        let Some(mouse) = self.mouse_location else {
              return Ok(());
         };
 
-        let width = frontend.display_data.w;
+        let width = ctx.display_data.w;
         let half = width / 2.;
-        let p0 = Point::new(half, frontend.display_data.h);
+        let p0 = Point::new(half, ctx.display_data.h);
 
         let p1x = if mouse.x < half { 0. } else { width };
 
-        frontend.highlight_area = Some(Rect::new(p0.x, p0.y, p1x, 0.));
+        self.highlight_area = Some(Rect::new(p0.x, p0.y, p1x, 0.));
 
         Ok(())
     }
 
     /// Render the background using _Skia_.
-    fn render(mut frontend: Wrapped<Self>) -> Result<()> {
-        let display_data = frontend.display_data;
-        let highlight_area = frontend.highlight_area;
-        let click_location = frontend.click_location;
-        let c = frontend.canvas.get();
+    fn render(&mut self, mut ctx: Context<Self>) -> Result<()> {
+        let dd = ctx.display_data;
+        let c = ctx.canvas.get();
 
         c.clear(Color4f::new(1., 1., 1., 1.));
-        if let Some(area) = highlight_area {
+        if let Some(area) = self.highlight_area {
             c.draw_rect(area, &Paint::new(Color4f::new(1., 0.8, 0.8, 1.), None));
         }
         c.draw_circle((0, 0), 50., &Paint::new(Color4f::new(0., 0., 0., 1.), None));
         c.draw_circle(
-            (display_data.w, 0.),
+            (dd.w, 0.),
             50.,
             &Paint::new(Color4f::new(1., 0., 0., 1.), None),
         );
         c.draw_circle(
-            (display_data.w, display_data.h),
+            (dd.w, dd.h),
             50.,
             &Paint::new(Color4f::new(0., 1., 0., 1.), None),
         );
         c.draw_circle(
-            (0., display_data.h),
+            (0., dd.h),
             50.,
             &Paint::new(Color4f::new(0., 0., 1., 1.), None),
         );
@@ -144,12 +142,12 @@ impl FrontendMethods for Frontend {
             &Paint::new(Color4f::new(0., 0., 0., 1.), None),
         );
         c.draw_text_blob(
-            TextBlob::new(&frontend.frontend.game_name, &Font::default()).expect("text error"),
+            TextBlob::new(&self.game_name, &Font::default()).expect("text error"),
             (50, 100),
             &Paint::new(Color4f::new(0., 0., 0., 1.), None),
         );
 
-        if let Some(location) = click_location {
+        if let Some(location) = self.click_location {
             let mut color = Paint::new(Color4f::new(0., 0., 0., 0.5), None);
             color.set_stroke(true);
             c.draw_circle(location, 5., &color);

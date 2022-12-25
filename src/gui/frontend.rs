@@ -2,7 +2,6 @@
 
 use std::{
     marker::PhantomData,
-    ops::{Deref, DerefMut},
     os::raw::{c_char, c_void},
     ptr::{addr_of, addr_of_mut, null_mut},
 };
@@ -111,11 +110,11 @@ pub trait FrontendMethods: Sized {
     type Options;
 
     fn create(options: Option<&Self::Options>) -> Result<Self>;
-    fn runtime_opts_display(frontend: Wrapped<Self>) -> Result<()>;
-    fn process_event(frontend: Wrapped<Self>, event: EventAny) -> Result<()>;
-    fn process_input(frontend: Wrapped<Self>, event: SDLEventEnum) -> Result<()>;
-    fn update(frontend: Wrapped<Self>) -> Result<()>;
-    fn render(frontend: Wrapped<Self>) -> Result<()>;
+    fn runtime_opts_display(&mut self, ctx: Context<Self>) -> Result<()>;
+    fn process_event(&mut self, ctx: Context<Self>, event: EventAny) -> Result<()>;
+    fn process_input(&mut self, ctx: Context<Self>, event: SDLEventEnum) -> Result<()>;
+    fn update(&mut self, ctx: Context<Self>) -> Result<()>;
+    fn render(&mut self, ctx: Context<Self>) -> Result<()>;
     fn is_game_compatible(game: GameInfo) -> CodeResult<()>;
 
     fn opts_create() -> CodeResult<Self::Options> {
@@ -195,7 +194,10 @@ pub trait FrontendMethods: Sized {
 
     #[doc(hidden)]
     unsafe extern "C" fn runtime_opts_display_wrapped(frontend: *mut sys::frontend) -> error_code {
-        mirabel_try!(frontend, Self::runtime_opts_display(Wrapped::new(frontend)));
+        mirabel_try!(
+            frontend,
+            Self::runtime_opts_display(get_self(frontend), Context::new(frontend))
+        );
 
         ERR_ERR_OK
     }
@@ -207,7 +209,10 @@ pub trait FrontendMethods: Sized {
     ) -> error_code {
         let event = EventAny::new(event);
 
-        mirabel_try!(frontend, Self::process_event(Wrapped::new(frontend), event));
+        mirabel_try!(
+            frontend,
+            Self::process_event(get_self(frontend), Context::new(frontend), event)
+        );
 
         ERR_ERR_OK
     }
@@ -226,11 +231,11 @@ pub trait FrontendMethods: Sized {
             }
         }
 
-        let wrapped = Wrapped::new(frontend);
+        let ctx = Context::new(frontend);
         macro_rules! translate {
             ($variant:ident, $event:ident) => {{
-                $event.x -= wrapped.display_data.x as i32;
-                $event.y -= wrapped.display_data.y as i32;
+                $event.x -= ctx.display_data.x as i32;
+                $event.y -= ctx.display_data.y as i32;
                 SDLEventEnum::$variant($event)
             }};
         }
@@ -242,21 +247,30 @@ pub trait FrontendMethods: Sized {
             e => e,
         };
 
-        mirabel_try!(frontend, Self::process_input(wrapped, event));
+        mirabel_try!(
+            frontend,
+            Self::process_input(get_self(frontend), ctx, event)
+        );
 
         ERR_ERR_OK
     }
 
     #[doc(hidden)]
     unsafe extern "C" fn update_wrapped(frontend: *mut sys::frontend) -> error_code {
-        mirabel_try!(frontend, Self::update(Wrapped::new(frontend)));
+        mirabel_try!(
+            frontend,
+            Self::update(get_self(frontend), Context::new(frontend))
+        );
 
         ERR_ERR_OK
     }
 
     #[doc(hidden)]
     unsafe extern "C" fn render_wrapped(frontend: *mut sys::frontend) -> error_code {
-        mirabel_try!(frontend, Self::render(Wrapped::new(frontend)));
+        mirabel_try!(
+            frontend,
+            Self::render(get_self(frontend), Context::new(frontend))
+        );
         #[cfg(feature = "skia")]
         if let Some(surface) = &mut Aux::<Self>::get(frontend).surface {
             surface.flush();
@@ -277,15 +291,15 @@ pub trait FrontendMethods: Sized {
     }
 }
 
-/// This provides access to the frontend struct and to additional tools.
-///
-/// Because this implements [`Deref`], it can be treated like `&mut self`.
-pub struct Wrapped<'l, F: FrontendMethods> {
-    /// A reference to the actual frontend struct.
-    ///
-    /// Consider using this directly instead of [`Deref`] when you have problems
-    /// with the borrow checker.
-    pub frontend: &'l mut F,
+/// Extract the `self` of a frontend from [`data1`](sys::frontend::data1) with
+/// arbitrary lifetime.
+unsafe fn get_self<'l, F>(frontend: *mut sys::frontend) -> &'l mut F {
+    let data: *mut c_void = *addr_of_mut!((*frontend).data1);
+    &mut *data.cast::<F>()
+}
+
+/// This provides access to context information and additional tools.
+pub struct Context<'l, F: FrontendMethods> {
     /// A read-only reference to the pre-create options.
     pub options: Option<&'l F::Options>,
     /// Some additional information provided by _mirabel_.
@@ -297,14 +311,12 @@ pub struct Wrapped<'l, F: FrontendMethods> {
     pub canvas: CanvasManager<'l>,
 }
 
-impl<'l, F: FrontendMethods> Wrapped<'l, F> {
+impl<'l, F: FrontendMethods + 'l> Context<'l, F> {
     #[inline]
     unsafe fn new(frontend: *mut sys::frontend) -> Self {
         let aux = Aux::<F>::get(frontend);
-        let data: *mut c_void = *addr_of_mut!((*frontend).data1);
         let display_data = &*aux.display_data;
         Self {
-            frontend: &mut *data.cast::<F>(),
             // It is ok to use a reference here for options and display_data
             // because 'l does not outlive the wrapper function.
             options: aux.options.as_ref(),
@@ -319,22 +331,6 @@ impl<'l, F: FrontendMethods> Wrapped<'l, F> {
                 display_data,
             },
         }
-    }
-}
-
-impl<'l, F: FrontendMethods> Deref for Wrapped<'l, F> {
-    type Target = F;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.frontend
-    }
-}
-
-impl<'l, F: FrontendMethods> DerefMut for Wrapped<'l, F> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.frontend
     }
 }
 
