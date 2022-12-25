@@ -231,25 +231,9 @@ pub trait FrontendMethods: Sized {
             }
         }
 
-        let ctx = Context::new(frontend);
-        macro_rules! translate {
-            ($variant:ident, $event:ident) => {{
-                $event.x -= ctx.display_data.x as i32;
-                $event.y -= ctx.display_data.y as i32;
-                SDLEventEnum::$variant($event)
-            }};
-        }
-        let event = match event {
-            SDLEventEnum::MouseMotion(mut event) => translate!(MouseMotion, event),
-            SDLEventEnum::MouseButtonDown(mut event) => translate!(MouseButtonDown, event),
-            SDLEventEnum::MouseButtonUp(mut event) => translate!(MouseButtonUp, event),
-            SDLEventEnum::MouseWheel(mut event) => translate!(MouseWheel, event),
-            e => e,
-        };
-
         mirabel_try!(
             frontend,
-            Self::process_input(get_self(frontend), ctx, event)
+            Self::process_input(get_self(frontend), Context::new(frontend), event)
         );
 
         ERR_ERR_OK
@@ -365,21 +349,25 @@ impl<'l> CanvasManager<'l> {
     /// This also adjusts the origin to the visible area.
     #[must_use]
     pub fn get(&mut self) -> &mut skia::Canvas {
-        let c = self
-            .surface
+        self.surface
             .get_or_insert_with(|| {
                 skia_helper::create_surface(
                     self.display_data.fbw as i32,
                     self.display_data.fbh as i32,
                 )
             })
-            .canvas();
-        c.set_matrix(&skia::M44::translate(
-            self.display_data.x,
-            self.display_data.y,
-            0.,
-        ));
-        c
+            .canvas()
+    }
+
+    /// Returns a translation matrix.
+    ///
+    /// The returned matrix sets the origin of the frame to the top left of the
+    /// main drawing area.
+    /// Use in [`skia::Canvas::set_matrix()`].
+    #[must_use]
+    #[inline]
+    pub fn matrix(&self) -> skia::Matrix {
+        skia::Matrix::translate((self.display_data.x, self.display_data.y))
     }
 }
 

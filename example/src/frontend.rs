@@ -80,13 +80,14 @@ impl FrontendMethods for Frontend {
     }
 
     /// Process _SDL_ events.
-    fn process_input(&mut self, _ctx: Context<Self>, event: SDLEventEnum) -> Result<()> {
+    fn process_input(&mut self, ctx: Context<Self>, event: SDLEventEnum) -> Result<()> {
+        let matrix = ctx.canvas.matrix().invert().expect("matrix not invertible");
         match event {
             SDLEventEnum::MouseMotion(event) => {
-                self.mouse_location = Some((event.x, event.y).into());
+                self.mouse_location = Some(matrix.map_point((event.x, event.y)));
             }
             SDLEventEnum::MouseButtonUp(event) => {
-                self.click_location = Some((event.x, event.y).into());
+                self.click_location = Some(matrix.map_point((event.x, event.y)));
             }
             _ => (),
         };
@@ -114,7 +115,8 @@ impl FrontendMethods for Frontend {
     /// Render the background using _Skia_.
     fn render(&mut self, mut ctx: Context<Self>) -> Result<()> {
         let dd = ctx.display_data;
-        let c = ctx.canvas.get();
+        let matrix = &ctx.canvas.matrix();
+        let c = ctx.canvas.get().set_matrix(&matrix.into());
 
         c.clear(Color4f::new(1., 1., 1., 1.));
         if let Some(area) = self.highlight_area {
