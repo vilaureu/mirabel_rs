@@ -8,20 +8,25 @@ version = "0.1.0"
 authors = ["vilaureu"]
 edition = "2021"
 publish = false
+build = "build/main.rs"
 
 [features]
-default = ["frontend", "skia"]
-frontend = []
-skia = ["skia-safe", "gl_generator", "frontend"]
-
-[dependencies.mirabel_sys]
-git = "https://github.com/vilaureu/mirabel_sys"
-rev = "35ad525d55b6713be2d8633b967158726bbc3d01"
+default = ["mirabel", "skia"]
+mirabel = []
+skia = ["skia-safe", "gl_generator", "mirabel"]
 
 [dependencies.skia-safe]
 version = "0.57"
 features = ["gl", "x11"]
 optional = true
+
+[build-dependencies.bindgen]
+version = "0.63"
+
+[build-dependencies.regex]
+version = "1.6"
+default-features = false
+features = ["std", "perf"]
 
 [build-dependencies.gl_generator]
 version = "0.14.0"

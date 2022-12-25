@@ -2,9 +2,9 @@
 
 use std::fmt;
 
-use mirabel_sys::sys::{self, SDL_Event, SDL_WindowEvent};
+use crate::sys::{self, SDL_Event, SDL_WindowEvent};
 
-pub use mirabel_sys::sys::{
+pub use crate::sys::{
     SDL_KeyboardEvent, SDL_MouseButtonEvent, SDL_MouseMotionEvent, SDL_MouseWheelEvent,
     SDL_BUTTON_LEFT, SDL_BUTTON_MIDDLE, SDL_BUTTON_RIGHT, SDL_BUTTON_X1, SDL_BUTTON_X2,
 };

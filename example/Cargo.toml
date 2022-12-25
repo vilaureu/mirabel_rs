@@ -7,7 +7,11 @@ publish = false
 
 [dependencies]
 # mirabel is simply a dependency.
-mirabel = { path = ".." }
+mirabel = { path = "..", default-features = false }
+
+[features]
+default = ["mirabel"]
+mirabel = ["mirabel/mirabel", "mirabel/skia"]
 
 [lib]
 # This creates a dynamic library which can be loaded into mirabel.

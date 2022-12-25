@@ -1,13 +1,8 @@
-//! Generate bindings.
-
-fn main() {
-    #[cfg(feature = "skia")]
-    generate_gl();
-}
+//! Generate _OpenGL_ bindings.
 
 /// Generate _OpenGL_ bindings which match the usage in _mirabel_.
 #[cfg(feature = "skia")]
-fn generate_gl() {
+pub(crate) fn generate() {
     use gl_generator::{Api, Fallbacks, Profile, Registry, StaticGenerator};
     use std::env;
     use std::fs::File;

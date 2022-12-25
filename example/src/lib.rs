@@ -1,3 +1,6 @@
 //! An example plugin which uses the Rust wrapper library.
 
-mod frontend;
+pub mod game;
+
+#[cfg(feature = "mirabel")]
+pub mod frontend;

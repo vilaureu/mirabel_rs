@@ -1,31 +1,20 @@
-//! This package presents wrapper for writing _mirabel_ plugins in (mostly) safe
-//! Rust.
+//! This crate provides a Rust wrapper for writing
+//! [_mirabel_](https://github.com/RememberOfLife/mirabel) and
+//! [_surena_](https://github.com/RememberOfLife/surena/) plugins.
 //!
 //! # Features
-//! - `frontend`: Provide a wrapper for writing frontend plugins.
+//! - `mirabel`: Include support for _mirabel_ (GUI) plugins. Else, only
+//!   _surena_ wrappers are available.
 //! - `skia`: Provide a _Skia_ wrapper for drawing in the frontend.
 
-#[cfg(feature = "frontend")]
-pub mod frontend;
+mod base;
+mod surena;
 
-#[cfg(any(feature = "frontend"))]
-pub mod sdl_event;
+#[cfg(feature = "mirabel")]
+mod gui;
 
-#[cfg(feature = "skia")]
-mod skia_helper;
+pub use base::*;
+pub use surena::*;
 
-pub use mirabel_sys::{
-    self, count, cstr,
-    error::*,
-    event::*,
-    imgui,
-    log::mirabel_log,
-    sys::{self, semver},
-    ValidCStr,
-};
-
-#[cfg(any(feature = "frontend"))]
-pub use sdl_event::SDLEventEnum;
-
-/// On error, this stores an [`ErrorCode`] and no message.
-pub type CodeResult<T> = std::result::Result<T, ErrorCode>;
+#[cfg(feature = "mirabel")]
+pub use gui::*;

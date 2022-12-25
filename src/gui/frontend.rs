@@ -9,22 +9,23 @@ use std::{
 
 use crate::sdl_event::SDLEventEnum;
 use crate::CodeResult;
-use mirabel_sys::{
+use crate::{
     cstr_to_rust,
     error::*,
     event::*,
+    game::game_feature_flags,
     sys::{self, semver},
     sys::{error_code, event_any, event_queue, frontend_display_data, ERR_ERR_OK},
     ValidCStr,
 };
 
 #[cfg(feature = "skia")]
-use crate::skia_helper;
+use super::skia_helper;
 
 #[cfg(feature = "skia")]
 pub use skia_safe as skia;
 
-pub use mirabel_sys::sys::{frontend_feature_flags, frontend_methods, game_feature_flags};
+pub use crate::sys::{frontend_feature_flags, frontend_methods};
 
 /// This macro creates the `plugin_get_frontend_methods` function.
 ///
@@ -219,7 +220,7 @@ pub trait FrontendMethods: Sized {
         let event = SDLEventEnum::new(event);
         #[cfg(feature = "skia")]
         if let SDLEventEnum::WindowEvent(event) = event {
-            use mirabel_sys::sys::SDL_WindowEventID_SDL_WINDOWEVENT_SIZE_CHANGED;
+            use crate::sys::SDL_WindowEventID_SDL_WINDOWEVENT_SIZE_CHANGED;
             if u32::from(event.event) == SDL_WindowEventID_SDL_WINDOWEVENT_SIZE_CHANGED {
                 Aux::<Self>::get(frontend).surface = None;
             }
@@ -413,7 +414,7 @@ impl<'l> GameInfo<'l> {
 ///
 /// # Example
 /// ```
-/// # use mirabel::{*, frontend::*};
+/// # use mirabel::{cstr, sys::semver, frontend::*};
 /// use std::ffi::CStr;
 ///
 /// let mut features = frontend_feature_flags::default();
