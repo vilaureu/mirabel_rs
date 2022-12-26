@@ -95,7 +95,7 @@ macro_rules! mirabel_try {
         match $result {
             Ok(v) => v,
             Err(error) => {
-                Aux::<Self>::get($game).set_error(error.message);
+                Aux::<F>::get($game).set_error(error.message);
                 return error.code.into();
             }
         }
@@ -107,8 +107,12 @@ macro_rules! mirabel_try {
 /// A plugin can be created by filling in the required methods.
 /// Optional features can be implemented by filling in the associated provided
 /// methods.
+///
 /// For documentation on the expected behavior of the individual functions
-/// see `frontend.h` in _mirabel_.
+/// see `mirabel/includes/mirabel/frontend.h`.
+///
+/// # Example
+/// See the `example` crate in the project root.
 pub trait FrontendMethods: Sized {
     /// The associated type for storing the pre-create options.
     type Options;
@@ -129,153 +133,157 @@ pub trait FrontendMethods: Sized {
     fn opts_display(options_struct: &mut Self::Options) -> CodeResult<()> {
         unimplemented!("opts_display")
     }
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn opts_create_wrapped(options_struct: *mut *mut c_void) -> error_code {
-        options_struct.write(null_mut());
-        match Self::opts_create() {
-            Ok(options) => {
-                *options_struct = Box::into_raw(Box::new(options)).cast::<c_void>();
-                ERR_ERR_OK
-            }
-            Err(code) => code.into(),
+unsafe extern "C" fn opts_create_wrapped<F: FrontendMethods>(
+    options_struct: *mut *mut c_void,
+) -> error_code {
+    options_struct.write(null_mut());
+    match F::opts_create() {
+        Ok(options) => {
+            *options_struct = Box::into_raw(Box::new(options)).cast::<c_void>();
+            ERR_ERR_OK
+        }
+        Err(code) => code.into(),
+    }
+}
+
+unsafe extern "C" fn opts_display_wrapped<F: FrontendMethods>(
+    options_struct: *mut c_void,
+) -> error_code {
+    match F::opts_display(&mut *options_struct.cast::<F::Options>()) {
+        Ok(()) => ERR_ERR_OK,
+        Err(code) => code.into(),
+    }
+}
+
+unsafe extern "C" fn opts_destroy_wrapped<F: FrontendMethods>(
+    options_struct: *mut c_void,
+) -> error_code {
+    drop(Box::from_raw(options_struct.cast::<F::Options>()));
+    ERR_ERR_OK
+}
+
+unsafe extern "C" fn get_last_error_wrapped<F: FrontendMethods>(
+    frontend: *mut sys::frontend,
+) -> *const c_char {
+    (&Aux::<F>::get(frontend).error).into()
+}
+
+unsafe extern "C" fn create_wrapped<F: FrontendMethods>(
+    frontend: *mut sys::frontend,
+    display_data: *mut frontend_display_data,
+    options_struct: *mut c_void,
+) -> error_code {
+    let options_struct = options_struct.cast::<F::Options>();
+
+    // Initialize data1 to zero in case creation fails.
+    let data1: *mut *mut c_void = addr_of_mut!((*frontend).data1);
+    data1.write(null_mut());
+    Aux::<F>::init(frontend, display_data, options_struct);
+
+    // TODO: maybe supply display_data to create
+
+    let data = mirabel_try!(frontend, F::create(options_struct.as_ref()));
+    // data1 is already initialized.
+    *data1 = Box::into_raw(Box::<F>::new(data)).cast::<c_void>();
+
+    sys::ERR_ERR_FEATURE_UNSUPPORTED
+}
+
+unsafe extern "C" fn destroy_wrapped<F: FrontendMethods>(
+    frontend: *mut sys::frontend,
+) -> error_code {
+    let data: &mut *mut c_void = &mut *addr_of_mut!((*frontend).data1);
+    if !data.is_null() {
+        drop(Box::from_raw(data.cast::<F>()));
+        // Leave as null pointer to catch use-after-free errors.
+        *data = null_mut();
+    }
+    Aux::<F>::free(frontend);
+
+    ERR_ERR_OK
+}
+
+unsafe extern "C" fn runtime_opts_display_wrapped<F: FrontendMethods>(
+    frontend: *mut sys::frontend,
+) -> error_code {
+    mirabel_try!(
+        frontend,
+        F::runtime_opts_display(get_self(frontend), Context::new(frontend))
+    );
+
+    ERR_ERR_OK
+}
+
+unsafe extern "C" fn process_event_wrapped<F: FrontendMethods>(
+    frontend: *mut sys::frontend,
+    event: event_any,
+) -> error_code {
+    let event = EventAny::new(event);
+
+    mirabel_try!(
+        frontend,
+        F::process_event(get_self(frontend), Context::new(frontend), event)
+    );
+
+    ERR_ERR_OK
+}
+
+unsafe extern "C" fn process_input_wrapped<F: FrontendMethods>(
+    frontend: *mut sys::frontend,
+    event: sys::SDL_Event,
+) -> error_code {
+    let event = SDLEventEnum::new(event);
+    #[cfg(feature = "skia")]
+    if let SDLEventEnum::WindowEvent(event) = event {
+        use crate::sys::SDL_WindowEventID_SDL_WINDOWEVENT_SIZE_CHANGED;
+        if u32::from(event.event) == SDL_WindowEventID_SDL_WINDOWEVENT_SIZE_CHANGED {
+            Aux::<F>::get(frontend).surface = None;
         }
     }
 
-    #[doc(hidden)]
-    unsafe extern "C" fn opts_display_wrapped(options_struct: *mut c_void) -> error_code {
-        match Self::opts_display(&mut *options_struct.cast::<Self::Options>()) {
-            Ok(()) => ERR_ERR_OK,
-            Err(code) => code.into(),
-        }
+    mirabel_try!(
+        frontend,
+        F::process_input(get_self(frontend), Context::new(frontend), event)
+    );
+
+    ERR_ERR_OK
+}
+
+unsafe extern "C" fn update_wrapped<F: FrontendMethods>(
+    frontend: *mut sys::frontend,
+) -> error_code {
+    mirabel_try!(
+        frontend,
+        F::update(get_self(frontend), Context::new(frontend))
+    );
+
+    ERR_ERR_OK
+}
+
+unsafe extern "C" fn render_wrapped<F: FrontendMethods>(
+    frontend: *mut sys::frontend,
+) -> error_code {
+    mirabel_try!(
+        frontend,
+        F::render(get_self(frontend), Context::new(frontend))
+    );
+    #[cfg(feature = "skia")]
+    if let Some(surface) = &mut Aux::<F>::get(frontend).surface {
+        surface.flush();
     }
 
-    #[doc(hidden)]
-    unsafe extern "C" fn opts_destroy_wrapped(options_struct: *mut c_void) -> error_code {
-        drop(Box::from_raw(options_struct.cast::<Self::Options>()));
-        ERR_ERR_OK
-    }
+    ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn get_last_error_wrapped(frontend: *mut sys::frontend) -> *const c_char {
-        (&Aux::<Self>::get(frontend).error).into()
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn create_wrapped(
-        frontend: *mut sys::frontend,
-        display_data: *mut frontend_display_data,
-        options_struct: *mut c_void,
-    ) -> error_code {
-        let options_struct = options_struct.cast::<Self::Options>();
-
-        // Initialize data1 to zero in case creation fails.
-        let data1: *mut *mut c_void = addr_of_mut!((*frontend).data1);
-        data1.write(null_mut());
-        Aux::<Self>::init(frontend, display_data, options_struct);
-
-        // TODO: maybe supply display_data to create
-
-        let data = mirabel_try!(frontend, Self::create(options_struct.as_ref()));
-        // data1 is already initialized.
-        *data1 = Box::into_raw(Box::<Self>::new(data)).cast::<c_void>();
-
-        sys::ERR_ERR_FEATURE_UNSUPPORTED
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn destroy_wrapped(frontend: *mut sys::frontend) -> error_code {
-        let data: &mut *mut c_void = &mut *addr_of_mut!((*frontend).data1);
-        if !data.is_null() {
-            drop(Box::from_raw(data.cast::<Self>()));
-            // Leave as null pointer to catch use-after-free errors.
-            *data = null_mut();
-        }
-        Aux::<Self>::free(frontend);
-
-        ERR_ERR_OK
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn runtime_opts_display_wrapped(frontend: *mut sys::frontend) -> error_code {
-        mirabel_try!(
-            frontend,
-            Self::runtime_opts_display(get_self(frontend), Context::new(frontend))
-        );
-
-        ERR_ERR_OK
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn process_event_wrapped(
-        frontend: *mut sys::frontend,
-        event: event_any,
-    ) -> error_code {
-        let event = EventAny::new(event);
-
-        mirabel_try!(
-            frontend,
-            Self::process_event(get_self(frontend), Context::new(frontend), event)
-        );
-
-        ERR_ERR_OK
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn process_input_wrapped(
-        frontend: *mut sys::frontend,
-        event: sys::SDL_Event,
-    ) -> error_code {
-        let event = SDLEventEnum::new(event);
-        #[cfg(feature = "skia")]
-        if let SDLEventEnum::WindowEvent(event) = event {
-            use crate::sys::SDL_WindowEventID_SDL_WINDOWEVENT_SIZE_CHANGED;
-            if u32::from(event.event) == SDL_WindowEventID_SDL_WINDOWEVENT_SIZE_CHANGED {
-                Aux::<Self>::get(frontend).surface = None;
-            }
-        }
-
-        mirabel_try!(
-            frontend,
-            Self::process_input(get_self(frontend), Context::new(frontend), event)
-        );
-
-        ERR_ERR_OK
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn update_wrapped(frontend: *mut sys::frontend) -> error_code {
-        mirabel_try!(
-            frontend,
-            Self::update(get_self(frontend), Context::new(frontend))
-        );
-
-        ERR_ERR_OK
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn render_wrapped(frontend: *mut sys::frontend) -> error_code {
-        mirabel_try!(
-            frontend,
-            Self::render(get_self(frontend), Context::new(frontend))
-        );
-        #[cfg(feature = "skia")]
-        if let Some(surface) = &mut Aux::<Self>::get(frontend).surface {
-            surface.flush();
-        }
-
-        ERR_ERR_OK
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn is_game_compatible_wrapped(
-        compat_game: *const sys::game_methods,
-    ) -> error_code {
-        let game = GameInfo::new(compat_game);
-        match Self::is_game_compatible(game) {
-            Ok(()) => ERR_ERR_OK,
-            Err(code) => code.into(),
-        }
+unsafe extern "C" fn is_game_compatible_wrapped<F: FrontendMethods>(
+    compat_game: *const sys::game_methods,
+) -> error_code {
+    let game = GameInfo::new(compat_game);
+    match F::is_game_compatible(game) {
+        Ok(()) => ERR_ERR_OK,
+        Err(code) => code.into(),
     }
 }
 
@@ -441,29 +449,29 @@ pub fn create_frontend_methods<F: FrontendMethods>(metadata: Metadata) -> fronte
         version: metadata.version,
         features: metadata.features,
         opts_create: if metadata.features.options() {
-            Some(F::opts_create_wrapped)
+            Some(opts_create_wrapped::<F>)
         } else {
             None
         },
         opts_display: if metadata.features.options() {
-            Some(F::opts_display_wrapped)
+            Some(opts_display_wrapped::<F>)
         } else {
             None
         },
         opts_destroy: if metadata.features.options() {
-            Some(F::opts_destroy_wrapped)
+            Some(opts_destroy_wrapped::<F>)
         } else {
             None
         },
-        get_last_error: Some(F::get_last_error_wrapped),
-        create: Some(F::create_wrapped),
-        destroy: Some(F::destroy_wrapped),
-        runtime_opts_display: Some(F::runtime_opts_display_wrapped),
-        process_event: Some(F::process_event_wrapped),
-        process_input: Some(F::process_input_wrapped),
-        update: Some(F::update_wrapped),
-        render: Some(F::render_wrapped),
-        is_game_compatible: Some(F::is_game_compatible_wrapped),
+        get_last_error: Some(get_last_error_wrapped::<F>),
+        create: Some(create_wrapped::<F>),
+        destroy: Some(destroy_wrapped::<F>),
+        runtime_opts_display: Some(runtime_opts_display_wrapped::<F>),
+        process_event: Some(process_event_wrapped::<F>),
+        process_input: Some(process_input_wrapped::<F>),
+        update: Some(update_wrapped::<F>),
+        render: Some(render_wrapped::<F>),
+        is_game_compatible: Some(is_game_compatible_wrapped::<F>),
         ..Default::default()
     }
 }
