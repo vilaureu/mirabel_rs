@@ -196,12 +196,12 @@ impl Default for Frontend {
     }
 }
 
-/// Create the [`frontend_methods`] for this frontend.
-fn example_frontend_methods() -> frontend_methods {
+/// Create the [`Metadata`] for this frontend.
+fn example_metadata() -> Metadata {
     let mut features = frontend_feature_flags::default();
     features.set_options(true);
 
-    create_frontend_methods::<Frontend>(Metadata {
+    Metadata {
         frontend_name: cstr("Example\0"),
         version: semver {
             major: 0,
@@ -209,8 +209,8 @@ fn example_frontend_methods() -> frontend_methods {
             patch: 0,
         },
         features,
-    })
+    }
 }
 
 // Generate the exported functions for _mirabel_.
-plugin_get_frontend_methods!(example_frontend_methods());
+plugin_get_frontend_methods!(Frontend{example_metadata()});

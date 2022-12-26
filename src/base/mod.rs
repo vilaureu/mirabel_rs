@@ -26,5 +26,5 @@ pub use string::*;
 #[macro_export]
 macro_rules! count {
     () => { 0 };
-    ($_e: expr $(, $rest: expr)*) => { 1 + $crate::count!($($rest),*) }
+    ($_e: tt $(, $rest: tt)*) => { 1 + $crate::count!($($rest),*) }
 }

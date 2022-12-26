@@ -13,8 +13,10 @@ use crate::{
     error::*,
     event::*,
     game::game_feature_flags,
-    sys::{self, semver},
-    sys::{error_code, event_any, event_queue, frontend_display_data, ERR_ERR_OK},
+    sys::{
+        self, error_code, event_any, event_queue, frontend_display_data, frontend_methods, semver,
+        ERR_ERR_OK,
+    },
     ValidCStr,
 };
 
@@ -24,13 +26,14 @@ use super::skia_helper;
 #[cfg(feature = "skia")]
 pub use skia_safe as skia;
 
-pub use crate::sys::{frontend_feature_flags, frontend_methods};
+pub use crate::sys::frontend_feature_flags;
 
 /// This macro creates the `plugin_get_frontend_methods` function.
 ///
-/// Is must be supplied with all [`frontend_methods`](sys::frontend_methods)
-/// which should be exported.
-/// These can be generated using [`create_frontend_methods`].
+/// Is must be supplied with all frontend structs and their [`Metadata`]
+/// structures so that they can be exported.
+/// This macro will internally call [`create_frontend_methods()`] to guarantee
+/// safe usage.
 /// This method can only be called once but with multiple methods.
 /// It also creates the `plugin_init_frontend`,
 /// `plugin_get_frontend_capi_version`, and `plugin_cleanup_frontend` functions
@@ -38,21 +41,22 @@ pub use crate::sys::{frontend_feature_flags, frontend_methods};
 ///
 /// # Example
 /// ```ignore
-/// plugin_get_frontend_methods!(
-///     create_frontend_methods::<MyFrontend>(metadata)
-/// );
+/// fn generate_metadata() -> Metadata {
+///     /* ... */
+/// }
+/// plugin_get_frontend_methods!(MyFrontend{generate_metadata()});
 /// ```
 #[macro_export]
 macro_rules! plugin_get_frontend_methods {
-    ( $( $x:expr ),* ) => {
+    ( $( $f:ty{$m:expr} ),* ) => {
         static mut PLUGIN_FRONTEND_METHODS: ::std::mem::MaybeUninit<
-            [$crate::sys::frontend_methods; $crate::count!($($x),*)]
+            [$crate::sys::frontend_methods; $crate::count!($($f),*)]
         > = ::std::mem::MaybeUninit::uninit();
 
         #[no_mangle]
         unsafe extern "C" fn plugin_init_frontend() {
-            ::std::mem::MaybeUninit::write(
-                &mut self::PLUGIN_FRONTEND_METHODS, [$($x),*]
+            ::std::mem::MaybeUninit::write(&mut self::PLUGIN_FRONTEND_METHODS,
+                [$(create_frontend_methods::<$f>($m)),*]
             );
         }
 
@@ -61,7 +65,7 @@ macro_rules! plugin_get_frontend_methods {
             count: *mut u32,
             methods: *mut *const $crate::sys::frontend_methods,
         ) {
-            count.write($crate::count!($($x),*));
+            count.write($crate::count!($($f),*));
             if methods.is_null() {
                 return;
             }
@@ -69,7 +73,7 @@ macro_rules! plugin_get_frontend_methods {
             let src = ::std::mem::MaybeUninit::assume_init_ref(
                 &self::PLUGIN_FRONTEND_METHODS
             );
-            for i in 0..$crate::count!($($x),*) {
+            for i in 0..$crate::count!($($f),*) {
                 methods.add(i).write(&src[i]);
             }
         }
