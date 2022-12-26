@@ -48,7 +48,7 @@ macro_rules! plugin_get_game_methods {
         #[no_mangle]
         unsafe extern "C" fn plugin_init_game() {
             ::std::mem::MaybeUninit::write(&mut self::PLUGIN_GAME_METHODS,
-                [$(create_game_methods::<$g>($m)),*]
+                [$($crate::game::create_game_methods::<$g>($m)),*]
             );
         }
 

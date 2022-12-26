@@ -38,8 +38,8 @@ jobs:
             target/
           key: "${{ runner.os }}-cargo-${{ steps.get-date.outputs.date }}\
             -${{ hashFiles('Cargo.toml') }}"
-      - name: Build
-        run: cargo build --verbose --no-default-features
+      - name: Build (only for surena)
+        run: cargo build --no-default-features --verbose
       - uses: actions/upload-artifact@v3
         with:
           name: example
