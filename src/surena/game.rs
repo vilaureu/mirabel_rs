@@ -1,8 +1,8 @@
 //! This is a wrapper library for the game API of the game engine.
 
 pub use crate::sys::{
-    buf_sizer, game_feature_flags, game_methods, move_code, player_id, semver, MOVE_NONE,
-    PLAYER_NONE, PLAYER_RAND,
+    buf_sizer, game_feature_flags, move_code, player_id, semver, MOVE_NONE, PLAYER_NONE,
+    PLAYER_RAND,
 };
 
 use crate::{
@@ -10,7 +10,8 @@ use crate::{
     error::{ErrorString, Result},
     game_init::GameInit,
     ptr_vec::PtrVec,
-    sys, ValidCStr,
+    sys::{self, game_methods},
+    ValidCStr,
 };
 
 use std::{
@@ -22,36 +23,41 @@ use std::{
 
 /// This macro creates the `plugin_get_game_methods` function.
 ///
-/// Is must be supplied with all [`game_methods`] which should be exported.
-/// These can be generated using [`create_game_methods`].
+/// Is must be supplied with all game structs and their [`Metadata`] structures
+/// so that they can be exported.
+/// This macro will internally call [`create_game_methods()`] to guarantee safe
+/// usage.
 /// This method can only be called once but with multiple methods.
 /// It also exports the `plugin_init_game`, `plugin_get_game_capi_version`, and
 /// `plugin_cleanup_game` functions for you.
 ///
 /// # Example
 /// ```ignore
-/// plugin_get_game_methods!(create_game_methods::<MyGame>(metadata));
+/// fn generate_metadata() -> Metadata {
+///     /* ... */
+/// }
+/// plugin_get_game_methods!(MyGame{generate_metadata()});
 /// ```
 #[macro_export]
 macro_rules! plugin_get_game_methods {
-    ( $( $x:expr ),* ) => {
+    ( $( $g:ty{$m:expr} ),* ) => {
         static mut PLUGIN_GAME_METHODS: ::std::mem::MaybeUninit<
-            [$crate::sys::game_methods; $crate::count!($($x),*)]
+            [$crate::sys::game_methods; $crate::count!($($g),*)]
         > = ::std::mem::MaybeUninit::uninit();
 
         #[no_mangle]
         unsafe extern "C" fn plugin_init_game() {
-            ::std::mem::MaybeUninit::write(
-                &mut self::PLUGIN_GAME_METHODS, [$($x),*]
+            ::std::mem::MaybeUninit::write(&mut self::PLUGIN_GAME_METHODS,
+                [$(create_game_methods::<$g>($m)),*]
             );
         }
 
         #[no_mangle]
         pub unsafe extern "C" fn plugin_get_game_methods(
             count: *mut u32,
-            methods: *mut *const $crate::game::game_methods,
+            methods: *mut *const $crate::sys::game_methods,
         ) {
-            count.write($crate::count!($($x),*));
+            count.write($crate::count!($($g),*));
             if methods.is_null() {
                 return;
             }
@@ -59,7 +65,7 @@ macro_rules! plugin_get_game_methods {
             let src = ::std::mem::MaybeUninit::assume_init_ref(
                 &self::PLUGIN_GAME_METHODS
             );
-            for i in 0..$crate::count!($($x),*) {
+            for i in 0..$crate::count!($($g),*) {
                 methods.add(i).write(&src[i]);
             }
         }

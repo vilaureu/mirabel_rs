@@ -335,17 +335,16 @@ impl GameMethods for Nim {
     }
 }
 
-/// This function creates the [`game_methods`] struct for exporting _Nim_.
+/// This function creates the [`Metadata`] struct for describing _Nim_.
 ///
-/// It uses the provided [`create_game_methods()`] function.
 /// [`game_feature_flags`] need to be set via the `set_` functions.
 /// Remember to add the trailing NUL byte to the `_name`s (see [`cstr()`]).
-fn example_game_methods() -> game_methods {
+fn example_metadata() -> Metadata {
     let mut features = game_feature_flags::default();
     features.set_print(true);
     features.set_options(true);
 
-    create_game_methods::<Nim>(Metadata {
+    Metadata {
         game_name: cstr("Nim\0"),
         variant_name: cstr("Standard\0"),
         impl_name: cstr("mirabel_rs\0"),
@@ -355,7 +354,7 @@ fn example_game_methods() -> game_methods {
             patch: 0,
         },
         features,
-    })
+    }
 }
 
 fn sub_too_large(mov: Counter, max: Counter) -> Result<()> {
@@ -383,4 +382,4 @@ const fn digits(mut n: Counter) -> usize {
 
 // Finally, this macro creates the required plugin_get_game_methods function,
 // which exports all provided game_methods structs to surena.
-plugin_get_game_methods!(example_game_methods());
+plugin_get_game_methods!(Nim{example_metadata()});
