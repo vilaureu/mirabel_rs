@@ -100,15 +100,14 @@ pub type StrBuf<'b> = PtrVec<'b, NonZeroU8>;
 
 /// Main trait which needs to be implemented by your game struct.
 ///
-/// See `game.h` @ _surena_ for API documentation.
-/// You should **not implement `[...]_wrapped`** methods.
+/// See `./mirabel/lib/surena/includes/surena/game.h` for API documentation.
 ///
 /// Games need to implement [`Drop`] for custom `destroy` handling.
 /// `clone` is handled by the [`Clone`] implementation and `compare` by [`Eq`].
 /// The [`Send`] bound is required by the surena API.
 ///
 /// # Example
-/// See the `./example` crate in the project root.
+/// See the `example` crate in the project root.
 pub trait GameMethods: Sized + Clone + Eq + Send {
     fn create(init_info: &GameInit) -> Result<(Self, buf_sizer)>;
     fn copy_from(&mut self, other: &mut Self) -> Result<()>;
@@ -143,239 +142,222 @@ pub trait GameMethods: Sized + Clone + Eq + Send {
     fn print(&mut self, str_buf: &mut StrBuf) -> Result<()> {
         unimplemented!("print")
     }
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn get_last_error_wrapped(game: *mut sys::game) -> *const c_char {
-        (&Aux::get(game).error).into()
+unsafe extern "C" fn get_last_error_wrapped<G: GameMethods>(game: *mut sys::game) -> *const c_char {
+    (&Aux::get(game).error).into()
+}
+
+unsafe extern "C" fn create_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    init_info: *mut sys::game_init,
+) -> sys::error_code {
+    // Initialize data1 to zero in case creation fails.
+    let data1: *mut *mut c_void = addr_of_mut!((*game).data1);
+    data1.write(null_mut());
+    Aux::init(game);
+
+    let (data, sizer) = surena_try!(game, G::create(&GameInit::new(&*init_info)));
+    check_sizer(&sizer, get_features(game));
+    addr_of_mut!((*game).sizer).write(sizer);
+    // data1 is already initialized.
+    *data1 = Box::into_raw(Box::new(data)).cast();
+
+    sys::ERR_ERR_OK
+}
+
+unsafe extern "C" fn export_options_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    ret_size: *mut usize,
+    str_buf: *mut c_char,
+) -> sys::error_code {
+    let mut ptr_vec = StrBuf::from_c_char(str_buf, ret_size, get_sizer(game).options_str);
+    surena_try!(game, get_data::<G>(game).export_options(&mut ptr_vec));
+    str_buf.add(*ret_size).write(0);
+
+    sys::ERR_ERR_OK
+}
+
+unsafe extern "C" fn destroy_wrapped<G: GameMethods>(game: *mut sys::game) -> sys::error_code {
+    let data: &mut *mut c_void = &mut *addr_of_mut!((*game).data1);
+    if !data.is_null() {
+        drop(Box::from_raw(data.cast::<G>()));
+        // Leave as null pointer to catch use-after-free errors.
+        *data = null_mut();
     }
+    Aux::free(game);
 
-    #[doc(hidden)]
-    unsafe extern "C" fn create_wrapped(
-        game: *mut sys::game,
-        init_info: *mut sys::game_init,
-    ) -> sys::error_code {
-        // Initialize data1 to zero in case creation fails.
-        let data1: *mut *mut c_void = addr_of_mut!((*game).data1);
-        data1.write(null_mut());
-        Aux::init(game);
+    sys::ERR_ERR_OK
+}
 
-        let (data, sizer) = surena_try!(game, Self::create(&GameInit::new(&*init_info)));
-        check_sizer(&sizer, get_features(game));
-        addr_of_mut!((*game).sizer).write(sizer);
-        // data1 is already initialized.
-        *data1 = Box::into_raw(Box::new(data)).cast();
+unsafe extern "C" fn clone_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    clone_target: *mut sys::game,
+) -> sys::error_code {
+    clone_target.copy_from_nonoverlapping(game, 1);
 
-        sys::ERR_ERR_OK
-    }
+    // Initialize data1 to zero in case clone fails.
+    let data1: *mut *mut c_void = addr_of_mut!((*clone_target).data1);
+    data1.write(null_mut());
+    Aux::init(clone_target);
 
-    #[doc(hidden)]
-    unsafe extern "C" fn export_options_wrapped(
-        game: *mut sys::game,
-        ret_size: *mut usize,
-        str_buf: *mut c_char,
-    ) -> sys::error_code {
-        let mut ptr_vec = StrBuf::from_c_char(str_buf, ret_size, get_sizer(game).options_str);
-        surena_try!(game, get_data::<Self>(game).export_options(&mut ptr_vec));
-        str_buf.add(*ret_size).write(0);
+    let data = get_data::<G>(game).clone();
+    // data1 is already initialized.
+    *data1 = Box::into_raw(Box::new(data)).cast();
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn destroy_wrapped(game: *mut sys::game) -> sys::error_code {
-        let data: &mut *mut c_void = &mut *addr_of_mut!((*game).data1);
-        if !data.is_null() {
-            drop(Box::from_raw(data.cast::<Self>()));
-            // Leave as null pointer to catch use-after-free errors.
-            *data = null_mut();
-        }
-        Aux::free(game);
+unsafe extern "C" fn copy_from_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    other: *mut sys::game,
+) -> sys::error_code {
+    let other = get_data::<G>(other);
+    surena_try!(game, get_data::<G>(game).copy_from(other));
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn clone_wrapped(
-        game: *mut sys::game,
-        clone_target: *mut sys::game,
-    ) -> sys::error_code {
-        clone_target.copy_from_nonoverlapping(game, 1);
+unsafe extern "C" fn compare_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    other: *mut sys::game,
+    ret_equal: *mut bool,
+) -> sys::error_code {
+    let other = get_data::<G>(other);
+    ret_equal.write(get_data::<G>(game).eq(&other));
 
-        // Initialize data1 to zero in case clone fails.
-        let data1: *mut *mut c_void = addr_of_mut!((*clone_target).data1);
-        data1.write(null_mut());
-        Aux::init(clone_target);
+    sys::ERR_ERR_OK
+}
 
-        let data = get_data::<Self>(game).clone();
-        // data1 is already initialized.
-        *data1 = Box::into_raw(Box::new(data)).cast();
+unsafe extern "C" fn import_state_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    string: *const c_char,
+) -> sys::error_code {
+    let string = cstr_to_rust(string);
+    surena_try!(game, get_data::<G>(game).import_state(string));
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn copy_from_wrapped(
-        game: *mut sys::game,
-        other: *mut sys::game,
-    ) -> sys::error_code {
-        let other = get_data::<Self>(other);
-        surena_try!(game, get_data::<Self>(game).copy_from(other));
+unsafe extern "C" fn export_state_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    ret_size: *mut usize,
+    str_buf: *mut c_char,
+) -> sys::error_code {
+    let mut ptr_vec = StrBuf::from_c_char(str_buf, ret_size, get_sizer(game).state_str);
+    surena_try!(game, get_data::<G>(game).export_state(&mut ptr_vec));
+    str_buf.add(*ret_size).write(0);
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn compare_wrapped(
-        game: *mut sys::game,
-        other: *mut sys::game,
-        ret_equal: *mut bool,
-    ) -> sys::error_code {
-        let other = get_data::<Self>(other);
-        ret_equal.write(get_data::<Self>(game).eq(&other));
+unsafe extern "C" fn players_to_move_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    ret_count: *mut u8,
+    players: *mut player_id,
+) -> sys::error_code {
+    let mut len = 0;
+    let mut players = PtrVec::new(
+        players,
+        &mut len,
+        get_sizer(game).max_players_to_move.into(),
+    );
+    surena_try!(game, get_data::<G>(game).players_to_move(&mut players));
+    ret_count.write(len as u8);
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn import_state_wrapped(
-        game: *mut sys::game,
-        string: *const c_char,
-    ) -> sys::error_code {
-        let string = cstr_to_rust(string);
-        surena_try!(game, get_data::<Self>(game).import_state(string));
+unsafe extern "C" fn get_concrete_moves_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    player: player_id,
+    ret_count: *mut u32,
+    moves: *mut move_code,
+) -> sys::error_code {
+    let mut len = 0;
+    let mut moves = PtrVec::new(moves, &mut len, get_sizer(game).max_moves as usize);
+    surena_try!(
+        game,
+        get_data::<G>(game).get_concrete_moves(player, &mut moves)
+    );
+    ret_count.write(len as u32);
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn export_state_wrapped(
-        game: *mut sys::game,
-        ret_size: *mut usize,
-        str_buf: *mut c_char,
-    ) -> sys::error_code {
-        let mut ptr_vec = StrBuf::from_c_char(str_buf, ret_size, get_sizer(game).state_str);
-        surena_try!(game, get_data::<Self>(game).export_state(&mut ptr_vec));
-        str_buf.add(*ret_size).write(0);
+unsafe extern "C" fn is_legal_move_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    player: player_id,
+    mov: move_code,
+) -> sys::error_code {
+    surena_try!(game, get_data::<G>(game).is_legal_move(player, mov));
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn players_to_move_wrapped(
-        game: *mut sys::game,
-        ret_count: *mut u8,
-        players: *mut player_id,
-    ) -> sys::error_code {
-        let mut len = 0;
-        let mut players = PtrVec::new(
-            players,
-            &mut len,
-            get_sizer(game).max_players_to_move.into(),
-        );
-        surena_try!(game, get_data::<Self>(game).players_to_move(&mut players));
-        ret_count.write(len as u8);
+unsafe extern "C" fn make_move_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    player: player_id,
+    mov: move_code,
+) -> sys::error_code {
+    surena_try!(game, get_data::<G>(game).make_move(player, mov));
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn get_concrete_moves_wrapped(
-        game: *mut sys::game,
-        player: player_id,
-        ret_count: *mut u32,
-        moves: *mut move_code,
-    ) -> sys::error_code {
-        let mut len = 0;
-        let mut moves = PtrVec::new(moves, &mut len, get_sizer(game).max_moves as usize);
-        surena_try!(
-            game,
-            get_data::<Self>(game).get_concrete_moves(player, &mut moves)
-        );
-        ret_count.write(len as u32);
+unsafe extern "C" fn get_results_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    ret_count: *mut u8,
+    players: *mut player_id,
+) -> sys::error_code {
+    let mut len = 0;
+    let mut players = PtrVec::new(players, &mut len, get_sizer(game).max_results.into());
+    surena_try!(game, get_data::<G>(game).get_results(&mut players));
+    ret_count.write(len as u8);
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn is_legal_move_wrapped(
-        game: *mut sys::game,
-        player: player_id,
-        mov: move_code,
-    ) -> sys::error_code {
-        surena_try!(game, get_data::<Self>(game).is_legal_move(player, mov));
+unsafe extern "C" fn get_move_code_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    player: player_id,
+    string: *const c_char,
+    ret_move: *mut move_code,
+) -> sys::error_code {
+    let string = cstr_to_rust_unchecked(string);
+    let result = surena_try!(game, get_data::<G>(game).get_move_code(player, string));
+    ret_move.write(result);
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn make_move_wrapped(
-        game: *mut sys::game,
-        player: player_id,
-        mov: move_code,
-    ) -> sys::error_code {
-        surena_try!(game, get_data::<Self>(game).make_move(player, mov));
+unsafe extern "C" fn get_move_str_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    player: player_id,
+    mov: move_code,
+    ret_size: *mut usize,
+    str_buf: *mut c_char,
+) -> sys::error_code {
+    let mut ptr_vec = StrBuf::from_c_char(str_buf, ret_size, get_sizer(game).move_str);
+    surena_try!(
+        game,
+        get_data::<G>(game).get_move_str(player, mov, &mut ptr_vec)
+    );
+    str_buf.add(*ret_size).write(0);
 
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
+}
 
-    #[doc(hidden)]
-    unsafe extern "C" fn get_results_wrapped(
-        game: *mut sys::game,
-        ret_count: *mut u8,
-        players: *mut player_id,
-    ) -> sys::error_code {
-        let mut len = 0;
-        let mut players = PtrVec::new(players, &mut len, get_sizer(game).max_results.into());
-        surena_try!(game, get_data::<Self>(game).get_results(&mut players));
-        ret_count.write(len as u8);
+unsafe extern "C" fn print_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    ret_size: *mut usize,
+    str_buf: *mut c_char,
+) -> sys::error_code {
+    let mut ptr_vec = StrBuf::from_c_char(str_buf, ret_size, get_sizer(game).print_str);
+    surena_try!(game, get_data::<G>(game).print(&mut ptr_vec));
+    str_buf.add(*ret_size).write(0);
 
-        sys::ERR_ERR_OK
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn get_move_code_wrapped(
-        game: *mut sys::game,
-        player: player_id,
-        string: *const c_char,
-        ret_move: *mut move_code,
-    ) -> sys::error_code {
-        let string = cstr_to_rust_unchecked(string);
-        let result = surena_try!(game, get_data::<Self>(game).get_move_code(player, string));
-        ret_move.write(result);
-
-        sys::ERR_ERR_OK
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn get_move_str_wrapped(
-        game: *mut sys::game,
-        player: player_id,
-        mov: move_code,
-        ret_size: *mut usize,
-        str_buf: *mut c_char,
-    ) -> sys::error_code {
-        let mut ptr_vec = StrBuf::from_c_char(str_buf, ret_size, get_sizer(game).move_str);
-        surena_try!(
-            game,
-            get_data::<Self>(game).get_move_str(player, mov, &mut ptr_vec)
-        );
-        str_buf.add(*ret_size).write(0);
-
-        sys::ERR_ERR_OK
-    }
-
-    #[doc(hidden)]
-    unsafe extern "C" fn print_wrapped(
-        game: *mut sys::game,
-        ret_size: *mut usize,
-        str_buf: *mut c_char,
-    ) -> sys::error_code {
-        let mut ptr_vec = StrBuf::from_c_char(str_buf, ret_size, get_sizer(game).print_str);
-        surena_try!(game, get_data::<Self>(game).print(&mut ptr_vec));
-        str_buf.add(*ret_size).write(0);
-
-        sys::ERR_ERR_OK
-    }
+    sys::ERR_ERR_OK
 }
 
 /// Non-function members for [`game_methods`].
@@ -423,28 +405,28 @@ pub fn create_game_methods<G: GameMethods>(metadata: Metadata) -> game_methods {
         impl_name: metadata.impl_name.into(),
         version: metadata.version,
         features: metadata.features,
-        get_last_error: Some(G::get_last_error_wrapped),
-        create: Some(G::create_wrapped),
+        get_last_error: Some(get_last_error_wrapped::<G>),
+        create: Some(create_wrapped::<G>),
         export_options: if metadata.features.options() {
-            Some(G::export_options_wrapped)
+            Some(export_options_wrapped::<G>)
         } else {
             None
         },
-        destroy: Some(G::destroy_wrapped),
-        clone: Some(G::clone_wrapped),
-        copy_from: Some(G::copy_from_wrapped),
-        compare: Some(G::compare_wrapped),
-        import_state: Some(G::import_state_wrapped),
-        export_state: Some(G::export_state_wrapped),
-        players_to_move: Some(G::players_to_move_wrapped),
-        get_concrete_moves: Some(G::get_concrete_moves_wrapped),
-        is_legal_move: Some(G::is_legal_move_wrapped),
-        make_move: Some(G::make_move_wrapped),
-        get_results: Some(G::get_results_wrapped),
-        get_move_code: Some(G::get_move_code_wrapped),
-        get_move_str: Some(G::get_move_str_wrapped),
+        destroy: Some(destroy_wrapped::<G>),
+        clone: Some(clone_wrapped::<G>),
+        copy_from: Some(copy_from_wrapped::<G>),
+        compare: Some(compare_wrapped::<G>),
+        import_state: Some(import_state_wrapped::<G>),
+        export_state: Some(export_state_wrapped::<G>),
+        players_to_move: Some(players_to_move_wrapped::<G>),
+        get_concrete_moves: Some(get_concrete_moves_wrapped::<G>),
+        is_legal_move: Some(is_legal_move_wrapped::<G>),
+        make_move: Some(make_move_wrapped::<G>),
+        get_results: Some(get_results_wrapped::<G>),
+        get_move_code: Some(get_move_code_wrapped::<G>),
+        get_move_str: Some(get_move_str_wrapped::<G>),
         print: if metadata.features.print() {
-            Some(G::print_wrapped)
+            Some(print_wrapped::<G>)
         } else {
             None
         },
