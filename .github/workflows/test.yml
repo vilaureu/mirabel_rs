@@ -82,6 +82,8 @@ jobs:
         if: steps.cache.outputs.cache-hit == 'true'
         run: find build -exec touch {} +
       - uses: actions/download-artifact@v3
+        with:
+          name: artifact
       - name: Make downloaded artifact files executable
         run: chmod +x libexample.so test_surena.sh
       - name: Configure
