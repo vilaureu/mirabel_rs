@@ -16,7 +16,7 @@ mirabel = []
 skia = ["skia-safe", "gl_generator", "mirabel"]
 
 [dependencies.skia-safe]
-version = "0.57"
+version = "0.58"
 features = ["gl", "x11"]
 optional = true
 
