@@ -1,13 +1,19 @@
 //! Wrapper for the _mirabel_ event framework.
 
-pub use super::{game_init::GameInit, sys::game_methods, sys::move_code, sys::player_id};
+use crate::MoveDataSync;
+
+pub use super::{sys::game_methods, sys::move_code, sys::player_id};
 
 use std::{
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
+    ptr::null_mut,
+    slice::from_raw_parts,
 };
 
-use super::{sys::*, ValidCStr};
+use super::{
+    game_init::GameInit, sys::move_data_s__bindgen_ty_1 as move_data_cl, sys::*, ValidCStr,
+};
 
 /// Wrapper for an owned [`event_any`].
 ///
@@ -34,12 +40,11 @@ impl EventAny {
         unsafe { EventEnum::new(self) }
     }
 
-    pub fn new_game_move(player: player_id, code: move_code) -> Self {
+    /// Create a new game move event by coping from the `player` and the `mov`.
+    pub fn new_game_move(player: player_id, mov: MoveDataSync<MoveData>) -> Self {
         let mut event = MaybeUninit::<event_any>::uninit();
         unsafe {
-            // This sets the sync_counter to 0 because it is ignored in events
-            // originating from plugins anyway.
-            event_create_game_move(event.as_mut_ptr(), 0, player, code);
+            event_create_game_move(event.as_mut_ptr(), player, mov.into());
         }
         unsafe { Self(event.assume_init()) }
     }
@@ -73,7 +78,7 @@ pub enum EventEnum<'l> {
     GameLoadMethods(EventGameLoadMethods<'l>),
     GameUnload(Event),
     GameState(EventGameState<'l>),
-    GameMove(EventGameMove),
+    GameMove(EventGameMove<'l>),
     Unknown,
 }
 
@@ -144,18 +149,62 @@ impl<'l> EventGameState<'l> {
     }
 }
 
-pub struct EventGameMove {
+pub struct EventGameMove<'l> {
     pub base: Event,
     pub player: player_id,
-    pub code: move_code,
+    pub data: MoveDataSync<MoveData<'l>>,
 }
 
-impl EventGameMove {
-    unsafe fn new(event: &event_game_move) -> Self {
+impl<'l> EventGameMove<'l> {
+    unsafe fn new(event: &'l event_game_move) -> Self {
         Self {
             base: Event::new(&event.base),
             player: event.player,
-            code: event.code,
+            data: MoveDataSync {
+                md: MoveData::from_ref(&event.data.md),
+                sync_ctr: event.data.sync_ctr,
+            },
+        }
+    }
+}
+
+/// Rust equivalent of a borrowed [`move_data`].
+#[derive(Clone, Copy)]
+pub enum MoveData<'l> {
+    MoveCode(move_code),
+    BigMove(&'l [u8]),
+}
+
+impl<'l> MoveData<'l> {
+    /// Converts a valid [`move_data`] to a [`Self`] by shallow-copying.
+    #[inline]
+    unsafe fn from_ref(md: &move_data) -> Self {
+        // A move is a big move iff data!=NULL.
+        if md.data.is_null() {
+            Self::MoveCode(md.cl.code)
+        } else if md.cl.len == 0 {
+            // Handle this case separately, just in case.
+            Self::BigMove(&[])
+        } else {
+            Self::BigMove(from_raw_parts(md.data, md.cl.len))
+        }
+    }
+}
+
+impl<'l> From<MoveData<'l>> for move_data {
+    #[inline]
+    fn from(value: MoveData<'l>) -> Self {
+        match value {
+            MoveData::MoveCode(code) => move_data {
+                cl: move_data_cl { code },
+                data: null_mut(),
+            },
+            MoveData::BigMove(slice) => move_data {
+                cl: move_data_cl { len: slice.len() },
+                // Slice pointers are never NULL as required for big moves.
+                // data is only read afterwards. Hence, it is fine to cast here.
+                data: slice.as_ptr().cast_mut(),
+            },
         }
     }
 }

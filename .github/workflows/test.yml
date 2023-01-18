@@ -42,8 +42,10 @@ jobs:
         run: cargo build --no-default-features --verbose
       - uses: actions/upload-artifact@v3
         with:
-          name: example
           path: target/debug/libexample.so
+      - uses: actions/upload-artifact@v3
+        with:
+          path: example/test_surena.sh
       - name: Test
         timeout-minutes: 5
         run: cargo test --verbose
@@ -80,10 +82,8 @@ jobs:
         if: steps.cache.outputs.cache-hit == 'true'
         run: find build -exec touch {} +
       - uses: actions/download-artifact@v3
-        with:
-          name: example
-      - name: Make libexample.so executable
-        run: chmod +x libexample.so
+      - name: Make downloaded artifact files executable
+        run: chmod +x libexample.so test_surena.sh
       - name: Configure
         # GCC-9 crashes when compiling surena
         run: >-
@@ -94,6 +94,4 @@ jobs:
         run: cmake --build build
       - name: Test
         timeout-minutes: 5
-        run: >-
-          echo -e "5\ninvalid\n4\n2\n1" | ./build/surena --game-plugin
-          ./libexample.so --game-options "10 5"
+        run: ./test_surena.sh ./build/surena ./libexample.so

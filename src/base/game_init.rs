@@ -41,12 +41,8 @@ impl<'l> GameInit<'l> {
             }
             SOURCE_TYPE_SERIALIZED => {
                 let source = init_info.source.serialized;
-                let begin: *const u8 = source.buf_begin.cast::<u8>();
-                let end: *const u8 = source.buf_begin.cast::<u8>();
-                Self::Serialized(from_raw_parts(
-                    begin,
-                    end.offset_from(begin).try_into().unwrap(),
-                ))
+                let begin: *const u8 = source.b.data.cast::<u8>();
+                Self::Serialized(from_raw_parts(begin, source.b.len))
             }
             _ => unreachable!("unexpected SOURCE_TYPE"),
         }

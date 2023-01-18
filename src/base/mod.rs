@@ -4,7 +4,6 @@
 
 pub mod error;
 pub mod game_init;
-pub mod ptr_vec;
 pub mod string;
 pub mod sys;
 
@@ -15,6 +14,27 @@ pub mod event;
 pub mod log;
 
 pub use string::*;
+
+/// Generic struct for creating [`move_data_sync`](sys::move_data_sync) wrappers.
+///
+/// This will match the layout of [`move_data_sync`](sys::move_data_sync) if M
+/// matches [`move_data`](sys::move_data).
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct MoveDataSync<M> {
+    pub md: M,
+    pub sync_ctr: u64,
+}
+
+impl<M: Into<sys::move_data>> From<MoveDataSync<M>> for sys::move_data_sync {
+    #[inline]
+    fn from(value: MoveDataSync<M>) -> Self {
+        sys::move_data_sync {
+            md: value.md.into(),
+            sync_ctr: value.sync_ctr,
+        }
+    }
+}
 
 /// Simple macro for counting the number of provided arguments.
 ///

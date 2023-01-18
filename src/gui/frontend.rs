@@ -12,8 +12,10 @@ use crate::{
     cstr_to_rust,
     error::*,
     event::*,
-    game::game_feature_flags,
-    sys::{self, error_code, event_any, event_queue, frontend_methods, semver, ERR_ERR_OK},
+    sys::{
+        self, error_code, event_any, event_queue, frontend_methods, game_feature_flags, semver,
+        ERR_ERR_OK,
+    },
     ValidCStr,
 };
 

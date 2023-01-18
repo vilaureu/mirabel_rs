@@ -2,8 +2,9 @@
 
 use std::{
     ffi::{c_char, CStr, CString, FromBytesWithNulError, NulError},
-    fmt::{Debug, Display},
+    fmt::{self, Debug, Display, Write},
     marker::PhantomData,
+    mem::take,
     ops::Deref,
     ptr::NonNull,
     str::from_utf8_unchecked,
@@ -134,6 +135,7 @@ impl<'l> From<ValidCStr<'l>> for &'l str {
 /// Owned variant of [`ValidCStr`] which simply wraps a [`CString`].
 ///
 /// It additionally guarantees that the character sequence is valid UTF-8.
+#[derive(Default)]
 pub struct ValidCString(CString);
 
 impl TryFrom<String> for ValidCString {
@@ -166,6 +168,19 @@ impl Deref for ValidCString {
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Write for ValidCString {
+    #[inline]
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        if s.bytes().any(|b| b == 0) {
+            return Err(fmt::Error);
+        }
+        let mut bytes = take(self).0.into_bytes();
+        bytes.extend_from_slice(s.as_bytes());
+        *self = unsafe { Self(CString::from_vec_unchecked(bytes)) };
+        Ok(())
     }
 }
 

@@ -110,6 +110,8 @@ pub enum ErrorCode {
     InvalidLegacy,
     InvalidState,
     UnstablePosition,
+    SyncCounterMismatch,
+    SyncCounterImpossibleReorder,
     Retry,
     CustomAny,
     Custom(CustomCode),
@@ -133,6 +135,8 @@ impl From<NonZeroU32> for ErrorCode {
             sys::ERR_ERR_INVALID_LEGACY => ErrorCode::InvalidLegacy,
             sys::ERR_ERR_INVALID_STATE => ErrorCode::InvalidState,
             sys::ERR_ERR_UNSTABLE_POSITION => ErrorCode::UnstablePosition,
+            sys::ERR_ERR_SYNC_COUNTER_MISMATCH => ErrorCode::SyncCounterMismatch,
+            sys::ERR_ERR_SYNC_COUNTER_IMPOSSIBLE_REORDER => ErrorCode::SyncCounterImpossibleReorder,
             sys::ERR_ERR_RETRY => ErrorCode::Retry,
             sys::ERR_ERR_CUSTOM_ANY => ErrorCode::CustomAny,
             ERR_ERR_ENUM_DEFAULT_OFFSET.. => {
@@ -158,6 +162,8 @@ impl From<ErrorCode> for error_code {
             ErrorCode::InvalidLegacy => sys::ERR_ERR_INVALID_LEGACY,
             ErrorCode::InvalidState => sys::ERR_ERR_INVALID_STATE,
             ErrorCode::UnstablePosition => sys::ERR_ERR_UNSTABLE_POSITION,
+            ErrorCode::SyncCounterMismatch => sys::ERR_ERR_SYNC_COUNTER_MISMATCH,
+            ErrorCode::SyncCounterImpossibleReorder => sys::ERR_ERR_SYNC_COUNTER_IMPOSSIBLE_REORDER,
             ErrorCode::Retry => sys::ERR_ERR_RETRY,
             ErrorCode::CustomAny => sys::ERR_ERR_CUSTOM_ANY,
             ErrorCode::Custom(code) => code.into(),
@@ -168,7 +174,7 @@ impl From<ErrorCode> for error_code {
 impl Display for ErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let code = error_code::from(*self);
-        let error = unsafe { cstr_to_rust(sys::get_general_error_string(code)) };
+        let error = unsafe { cstr_to_rust(sys::get_general_error_string(code, null())) };
         match error {
             Some(s) => write!(f, "{}", s),
             None => write!(f, "custom[{}]", code),

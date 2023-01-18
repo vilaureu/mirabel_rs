@@ -1,6 +1,6 @@
 //! Example (misère) _Nim_ game for showing how to use the wrapper library.
 
-use mirabel::{error::*, game::*, game_init::GameInit, ptr_vec::PtrVec, *};
+use mirabel::{error::*, game::*, game_init::GameInit, *};
 
 use std::fmt::Write;
 
@@ -77,26 +77,6 @@ impl Nim {
         Ok(Nim::new(counter, max_sub))
     }
 
-    /// This calculates the [`buf_sizer`] according to the description in the
-    /// `game.h`.
-    ///
-    /// Especially, remember that string lengths also include the NUL byte.
-    fn calc_sizer(&self) -> buf_sizer {
-        // eg. "A 42\0"
-        let state_str = digits(self.counter) + 3;
-        buf_sizer {
-            options_str: digits(self.counter) + digits(self.max_sub) + 2,
-            state_str,
-            player_count: 2,
-            max_players_to_move: 1,
-            max_moves: self.max_sub.into(),
-            max_results: 1,
-            move_str: digits(self.max_sub) + 1,
-            print_str: state_str + 1,
-            ..Default::default()
-        }
-    }
-
     /// Importing the default options should reset the game state.
     fn reset(&mut self) {
         self.counter = self.initial_counter;
@@ -125,15 +105,16 @@ impl Default for Nim {
 }
 
 impl GameMethods for Nim {
+    /// We need to specify whether we want to use move codes or big moves.
+    type Move = MoveCode;
+
     /// Create a new instance of the game data.
     ///
     /// The game can be configured by parsing the `init_info`'s `opts` and
     /// `state`.
     /// Be careful, the options might be user input!
-    ///
-    /// See also [`Nim::calc_sizer`].
-    fn create(init_info: &GameInit) -> Result<(Self, buf_sizer)> {
-        let game = match init_info {
+    fn create(init_info: &GameInit) -> Result<Self> {
+        Ok(match init_info {
             GameInit::Default => Nim::default(),
             GameInit::Standard {
                 opts,
@@ -159,17 +140,13 @@ impl GameMethods for Nim {
                     "initialization via serialized state unsupported",
                 ))
             }
-        };
-
-        let sizer = game.calc_sizer();
-        Ok((game, sizer))
+        })
     }
 
     /// Export the original game settings used to create the game.
     ///
-    /// An [`StrBuf`] can be written to by simply using [`write!()`].
-    /// The written length must not exceed [`buf_sizer::options_str`]` - 1`.
-    fn export_options(&mut self, str_buf: &mut StrBuf) -> Result<()> {
+    /// A [`ValidCString`] can be written to by simply using [`write!()`].
+    fn export_options(&mut self, _player: player_id, str_buf: &mut ValidCString) -> Result<()> {
         write!(str_buf, "{} {}", self.initial_counter, self.max_sub)
             .expect("failed to write options buffer");
         Ok(())
@@ -181,6 +158,10 @@ impl GameMethods for Nim {
     fn copy_from(&mut self, other: &mut Self) -> Result<()> {
         *self = *other;
         Ok(())
+    }
+
+    fn player_count(&mut self) -> Result<u8> {
+        Ok(2)
     }
 
     /// Set the internal state according to the input `string`.
@@ -233,18 +214,14 @@ impl GameMethods for Nim {
         Ok(())
     }
 
-    fn export_state(&mut self, str_buf: &mut StrBuf) -> Result<()> {
+    fn export_state(&mut self, _player: player_id, str_buf: &mut ValidCString) -> Result<()> {
         write!(str_buf, "{} {}", self.player_char(), self.counter)
             .expect("failed to write state buffer");
         Ok(())
     }
 
-    /// A `PtrVec` is like a very simply [`Vec`] but with a fixed
-    /// [`PtrVec::capacity()`].
-    ///
-    /// Hence, the players which are to move can be simply
-    /// [`push()`](PtrVec::push())ed into `players` as long as
-    /// [`buf_sizer::max_players_to_move`] is not exceeded.
+    /// The players which are to move can be simply [`push()`](Vec::push())ed
+    /// into `players` as long as [`u8::MAX`] is not exceeded.
     ///
     /// Alternatively, players can be assembled in another array and then
     /// copied:
@@ -252,36 +229,36 @@ impl GameMethods for Nim {
     /// let local = [1, 3, 4];
     /// players.extend_from_slice(&local);
     /// ```
-    fn players_to_move(&mut self, players: &mut PtrVec<player_id>) -> Result<()> {
+    fn players_to_move(&mut self, players: &mut Vec<player_id>) -> Result<()> {
         if self.counter > 0 {
             players.push(self.player_id());
         }
         Ok(())
     }
 
-    fn get_concrete_moves(
-        &mut self,
-        player: player_id,
-        moves: &mut PtrVec<move_code>,
-    ) -> Result<()> {
+    /// The available moves can be simply [`push()`](Vec::push())ed into
+    /// `moves`.
+    /// The type of `moves` depends on [`Self::Move`].
+    fn get_concrete_moves(&mut self, player: player_id, moves: &mut Vec<MoveCode>) -> Result<()> {
         if player != self.player_id() {
             return Ok(());
         }
 
         for mov in 1..=self.max_sub.min(self.counter) {
-            moves.push(mov.into());
+            moves.push(move_code::from(mov).into());
         }
         Ok(())
     }
 
-    fn is_legal_move(&mut self, player: player_id, mov: move_code) -> Result<()> {
+    /// The type of `mov` depends on [`Self::Move`].
+    fn is_legal_move(&mut self, player: player_id, mov: MoveDataSync<&u64>) -> Result<()> {
         if self.counter == 0 {
             return Err(Error::new_static(
                 ErrorCode::InvalidInput,
                 "game already over\0",
             ));
         }
-        if mov == 0 {
+        if *mov.md == 0 {
             return Err(Error::new_static(
                 ErrorCode::InvalidInput,
                 "need to subtract at least one\0",
@@ -293,24 +270,24 @@ impl GameMethods for Nim {
                 "this player is not to move\0",
             ));
         }
-        sub_too_large(mov as Counter, self.counter)?;
+        sub_too_large(*mov.md as Counter, self.counter)?;
         Ok(())
     }
 
-    fn make_move(&mut self, _player: player_id, mov: move_code) -> Result<()> {
-        self.counter -= mov as Counter;
+    fn make_move(&mut self, _player: player_id, mov: MoveDataSync<&u64>) -> Result<()> {
+        self.counter -= *mov.md as Counter;
         self.turn = !self.turn;
         Ok(())
     }
 
-    fn get_results(&mut self, players: &mut PtrVec<player_id>) -> Result<()> {
+    fn get_results(&mut self, players: &mut Vec<player_id>) -> Result<()> {
         if self.counter == 0 {
             players.push(self.player_id());
         }
         Ok(())
     }
 
-    fn get_move_code(&mut self, _player: player_id, string: &str) -> Result<move_code> {
+    fn get_move_data(&mut self, _player: player_id, string: &str) -> Result<u64> {
         let mov: Counter = string.parse().map_err(|e| {
             Error::new_dynamic(ErrorCode::InvalidInput, format!("move parsing error: {e}"))
         })?;
@@ -321,15 +298,15 @@ impl GameMethods for Nim {
     fn get_move_str(
         &mut self,
         _player: player_id,
-        mov: move_code,
-        str_buf: &mut StrBuf,
+        mov: MoveDataSync<&u64>,
+        str_buf: &mut ValidCString,
     ) -> Result<()> {
-        write!(str_buf, "{}", mov).expect("failed to write move buffer");
+        write!(str_buf, "{}", mov.md).expect("failed to write move buffer");
         Ok(())
     }
 
-    fn print(&mut self, str_buf: &mut StrBuf) -> Result<()> {
-        self.export_state(str_buf)?;
+    fn print(&mut self, player: player_id, str_buf: &mut ValidCString) -> Result<()> {
+        self.export_state(player, str_buf)?;
         writeln!(str_buf).expect("failed to write print buffer");
         Ok(())
     }
@@ -337,13 +314,8 @@ impl GameMethods for Nim {
 
 /// This function creates the [`Metadata`] struct for describing _Nim_.
 ///
-/// [`game_feature_flags`] need to be set via the `set_` functions.
 /// Remember to add the trailing NUL byte to the `_name`s (see [`cstr()`]).
 fn example_metadata() -> Metadata {
-    let mut features = game_feature_flags::default();
-    features.set_print(true);
-    features.set_options(true);
-
     Metadata {
         game_name: cstr("Nim\0"),
         variant_name: cstr("Standard\0"),
@@ -353,7 +325,10 @@ fn example_metadata() -> Metadata {
             minor: 1,
             patch: 0,
         },
-        features,
+        features: GameFeatures {
+            options: true,
+            print: true,
+        },
     }
 }
 
@@ -365,18 +340,6 @@ fn sub_too_large(mov: Counter, max: Counter) -> Result<()> {
         ))
     } else {
         Ok(())
-    }
-}
-
-/// Calculates the number of digits needed to print `n`.
-const fn digits(mut n: Counter) -> usize {
-    let mut digits = 1;
-    loop {
-        n /= 10;
-        if n == 0 {
-            return digits;
-        }
-        digits += 1;
     }
 }
 
