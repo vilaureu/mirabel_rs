@@ -147,7 +147,7 @@ impl TryFrom<String> for ValidCString {
     /// ```
     /// # use mirabel::ValidCString;
     /// let string : ValidCString = "ValidCString".to_string().try_into().unwrap();
-    /// let s : &str = (&string).into();
+    /// let s : &str = string.as_ref();
     /// assert_eq!("ValidCString", s);
     /// ```
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -155,10 +155,10 @@ impl TryFrom<String> for ValidCString {
     }
 }
 
-impl<'l> From<&'l ValidCString> for &'l str {
+impl AsRef<str> for ValidCString {
     #[inline]
-    fn from(s: &'l ValidCString) -> Self {
-        unsafe { from_utf8_unchecked(s.to_bytes()) }
+    fn as_ref(&self) -> &str {
+        unsafe { from_utf8_unchecked(self.to_bytes()) }
     }
 }
 
@@ -186,12 +186,12 @@ impl Write for ValidCString {
 
 impl Display for ValidCString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(Into::<&str>::into(self), f)
+        Display::fmt(AsRef::<str>::as_ref(self), f)
     }
 }
 
 impl Debug for ValidCString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(Into::<&str>::into(self), f)
+        Debug::fmt(AsRef::<str>::as_ref(self), f)
     }
 }
