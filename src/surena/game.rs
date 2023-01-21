@@ -437,6 +437,16 @@ pub unsafe trait MoveData:
 #[repr(transparent)]
 pub struct MoveCode(move_data);
 
+impl MoveCode {
+    /// Create a new vector of [`move_code`]s from a slice of [`Self`].
+    ///
+    /// This uses [`Self::as_ref`] and is mainly intended as a helper function
+    /// for writing tests.
+    pub fn slice_to_rust(s: &[Self]) -> Vec<move_code> {
+        s.iter().map(|m| *m.as_ref()).collect()
+    }
+}
+
 unsafe impl MoveData for MoveCode {
     type Rust = move_code;
     const IS_BIG: bool = false;
@@ -496,6 +506,7 @@ unsafe impl MoveData for BigMove {
         &*(mov as *const move_data as *const Self)
     }
 }
+
 impl AsRef<[u8]> for BigMove {
     #[inline]
     fn as_ref(&self) -> &[u8] {
