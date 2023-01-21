@@ -1,6 +1,8 @@
 //! This is a wrapper library for the game API of the game engine.
 
-pub use crate::sys::{move_code, player_id, semver, MOVE_NONE, PLAYER_NONE, PLAYER_RAND};
+pub use crate::sys::{
+    move_code, player_id, semver, MOVE_NONE, PLAYER_NONE, PLAYER_RAND, SYNC_CTR_DEFAULT,
+};
 
 use crate::{
     cstr_to_rust, cstr_to_rust_unchecked,

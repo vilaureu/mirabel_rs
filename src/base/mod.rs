@@ -26,6 +26,31 @@ pub struct MoveDataSync<M> {
     pub sync_ctr: u64,
 }
 
+impl<M> MoveDataSync<M> {
+    /// Create a new [`Self`] using the
+    /// [`SYNC_CTR_DEFAULT`](sys::SYNC_CTR_DEFAULT).
+    ///
+    /// This is mainly a helper for perfect-information games.
+    ///
+    /// # Example
+    /// ```
+    /// # use mirabel::{MoveDataSync, sys::SYNC_CTR_DEFAULT};
+    /// assert_eq!(
+    ///     MoveDataSync {
+    ///         md: 42,
+    ///         sync_ctr: SYNC_CTR_DEFAULT
+    ///     },
+    ///     MoveDataSync::with_default(42)
+    /// );
+    /// ```
+    pub fn with_default(md: M) -> Self {
+        Self {
+            md,
+            sync_ctr: sys::SYNC_CTR_DEFAULT,
+        }
+    }
+}
+
 impl<M: Into<sys::move_data>> From<MoveDataSync<M>> for sys::move_data_sync {
     #[inline]
     fn from(value: MoveDataSync<M>) -> Self {
