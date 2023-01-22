@@ -26,8 +26,9 @@ invalid
 /destroy
 /exit"
 
-OUTPUT="$(echo -e "$INPUT" | $1 repl)"
+OUTPUT="$(echo "$INPUT" | $1 repl)"
 grep -E '^B 0$' <<<"$OUTPUT" >/dev/null || (
-	echo "Got unexpected output from surena!"
+	echo "$OUTPUT"
+	echo "Got unexpected output from surena!" >&2
 	exit 1
 )
