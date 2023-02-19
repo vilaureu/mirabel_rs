@@ -1,7 +1,7 @@
 //! This is a wrapper library for the game API of the game engine.
 
 pub use crate::sys::{
-    move_code, player_id, semver, MOVE_NONE, PLAYER_NONE, PLAYER_RAND, SYNC_CTR_DEFAULT,
+    move_code, player_id, semver, MOVE_NONE, PLAYER_NONE, PLAYER_RAND, SEED_NONE, SYNC_CTR_DEFAULT,
 };
 
 use crate::{
@@ -16,7 +16,8 @@ use crate::{
 };
 
 use std::{
-    ffi::c_void,
+    ffi::{c_float, c_void},
+    num::NonZeroU64,
     ops::Deref,
     os::raw::c_char,
     ptr::{addr_of, addr_of_mut, null_mut},
@@ -146,6 +147,25 @@ pub trait GameMethods: Sized + Clone + Eq + Send {
     #[allow(unused_variables)]
     fn export_options(&mut self, player: player_id, str_buf: &mut ValidCString) -> Result<()> {
         unimplemented!("export_options")
+    }
+    /// Must be implemented when [`GameFeatures::random_moves`] is enabled.
+    #[allow(unused_variables)]
+    fn get_concrete_move_probabilities(
+        &mut self,
+        player: player_id,
+        move_probabilities: &mut Vec<c_float>,
+    ) -> Result<()> {
+        unimplemented!("get_concrete_move_probabilities")
+    }
+    /// Must be implemented when [`GameFeatures::random_moves`] is enabled.
+    #[allow(unused_variables)]
+    fn discretize(&mut self, seed: NonZeroU64) -> Result<()> {
+        unimplemented!("discretize")
+    }
+    /// Must be implemented when [`GameFeatures::random_moves`] is enabled.
+    #[allow(unused_variables)]
+    fn redact_keep_state(&mut self, players: &[player_id]) -> Result<()> {
+        unimplemented!("redact_keep_state")
     }
     /// Must be implemented when [`GameFeatures::print`] is enabled.
     #[allow(unused_variables)]
@@ -316,6 +336,27 @@ unsafe extern "C" fn get_concrete_moves_wrapped<G: GameMethods>(
     sys::ERR_ERR_OK
 }
 
+unsafe extern "C" fn get_concrete_move_probabilities_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    player: player_id,
+    ret_count: *mut u32,
+    ret_move_probabilities: *mut *const c_float,
+) -> sys::error_code {
+    let (aux, game) = get_both::<G>(game);
+    let prob_buf = &mut aux.float_buf;
+    prob_buf.clear();
+    surena_try!(aux, game.get_concrete_move_probabilities(player, prob_buf));
+
+    ret_move_probabilities.write(prob_buf.as_ptr());
+    ret_count.write(
+        prob_buf
+            .len()
+            .try_into()
+            .expect("probability buffer too large"),
+    );
+    sys::ERR_ERR_OK
+}
+
 unsafe extern "C" fn is_legal_move_wrapped<G: GameMethods>(
     game: *mut sys::game,
     player: player_id,
@@ -355,6 +396,35 @@ unsafe extern "C" fn get_results_wrapped<G: GameMethods>(
             .try_into()
             .expect("player buffer too large"),
     );
+    sys::ERR_ERR_OK
+}
+
+unsafe extern "C" fn discretize_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    seed: u64,
+) -> sys::error_code {
+    assert_eq!(0, SEED_NONE);
+
+    let (aux, game) = get_both::<G>(game);
+    surena_try!(
+        aux,
+        game.discretize(seed.try_into().expect("discretize called with SEED_NONE"))
+    );
+
+    sys::ERR_ERR_OK
+}
+
+unsafe extern "C" fn redact_keep_state_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    count: u8,
+    players: *const player_id,
+) -> sys::error_code {
+    let (aux, game) = get_both::<G>(game);
+    surena_try!(
+        aux,
+        game.redact_keep_state(from_raw_parts(players, count.into()))
+    );
+
     sys::ERR_ERR_OK
 }
 
@@ -607,6 +677,7 @@ pub struct Metadata {
 #[derive(Default)]
 pub struct GameFeatures {
     pub options: bool,
+    pub random_moves: bool,
     pub print: bool,
 }
 
@@ -656,9 +727,12 @@ pub fn create_game_methods<G: GameMethods>(metadata: Metadata) -> game_methods {
         export_state: Some(export_state_wrapped::<G>),
         players_to_move: Some(players_to_move_wrapped::<G>),
         get_concrete_moves: Some(get_concrete_moves_wrapped::<G>),
+        get_concrete_move_probabilities: Some(get_concrete_move_probabilities_wrapped::<G>),
         is_legal_move: Some(is_legal_move_wrapped::<G>),
         make_move: Some(make_move_wrapped::<G>),
         get_results: Some(get_results_wrapped::<G>),
+        discretize: Some(discretize_wrapped::<G>),
+        redact_keep_state: Some(redact_keep_state_wrapped::<G>),
         get_move_data: Some(get_move_data_wrapped::<G>),
         get_move_str: Some(get_move_str_wrapped::<G>),
         print: if metadata.features.print {
@@ -676,6 +750,7 @@ struct Aux<G: GameMethods> {
     move_buf: Vec<G::Move>,
     /// Might get modified from the outside.
     sync_buf: MoveDataSync<G::Move>,
+    float_buf: Vec<c_float>,
     error: ErrorString,
 }
 
@@ -711,6 +786,7 @@ impl<G: GameMethods> Default for Aux<G> {
             player_buf: Default::default(),
             move_buf: Default::default(),
             sync_buf: Default::default(),
+            float_buf: Default::default(),
             error: Default::default(),
         }
     }

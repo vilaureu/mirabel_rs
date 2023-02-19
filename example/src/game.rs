@@ -328,6 +328,7 @@ fn example_metadata() -> Metadata {
         features: GameFeatures {
             options: true,
             print: true,
+            ..Default::default()
         },
     }
 }
