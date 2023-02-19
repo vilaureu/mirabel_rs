@@ -27,7 +27,7 @@ invalid
 /exit"
 
 OUTPUT="$(echo "$INPUT" | $1 repl)"
-grep -E '^B 0$' <<<"$OUTPUT" >/dev/null || (
+grep -E '> B 0$' <<<"$OUTPUT" >/dev/null || (
 	echo "$OUTPUT"
 	echo "Got unexpected output from surena!" >&2
 	exit 1
