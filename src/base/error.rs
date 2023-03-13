@@ -98,6 +98,7 @@ impl From<ErrorCode> for Error {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ErrorCode {
+    Nok,
     StateUnrecoverable,
     StateCorrupted,
     OutOfMemory,
@@ -109,6 +110,7 @@ pub enum ErrorCode {
     InvalidOptions,
     InvalidLegacy,
     InvalidState,
+    Unenumerable,
     UnstablePosition,
     SyncCounterMismatch,
     SyncCounterImpossibleReorder,
@@ -123,6 +125,7 @@ impl From<NonZeroU32> for ErrorCode {
         assert_eq!(0, sys::ERR_ERR_OK);
         match code.get() {
             0 => unreachable!(),
+            sys::ERR_ERR_NOK => ErrorCode::Nok,
             sys::ERR_ERR_STATE_UNRECOVERABLE => ErrorCode::StateUnrecoverable,
             sys::ERR_ERR_STATE_CORRUPTED => ErrorCode::StateCorrupted,
             sys::ERR_ERR_OUT_OF_MEMORY => ErrorCode::OutOfMemory,
@@ -134,6 +137,7 @@ impl From<NonZeroU32> for ErrorCode {
             sys::ERR_ERR_INVALID_OPTIONS => ErrorCode::InvalidOptions,
             sys::ERR_ERR_INVALID_LEGACY => ErrorCode::InvalidLegacy,
             sys::ERR_ERR_INVALID_STATE => ErrorCode::InvalidState,
+            sys::ERR_ERR_UNENUMERABLE => ErrorCode::Unenumerable,
             sys::ERR_ERR_UNSTABLE_POSITION => ErrorCode::UnstablePosition,
             sys::ERR_ERR_SYNC_COUNTER_MISMATCH => ErrorCode::SyncCounterMismatch,
             sys::ERR_ERR_SYNC_COUNTER_IMPOSSIBLE_REORDER => ErrorCode::SyncCounterImpossibleReorder,
@@ -150,6 +154,7 @@ impl From<ErrorCode> for error_code {
     #[inline]
     fn from(error: ErrorCode) -> Self {
         match error {
+            ErrorCode::Nok => sys::ERR_ERR_NOK,
             ErrorCode::StateUnrecoverable => sys::ERR_ERR_STATE_UNRECOVERABLE,
             ErrorCode::StateCorrupted => sys::ERR_ERR_STATE_CORRUPTED,
             ErrorCode::OutOfMemory => sys::ERR_ERR_OUT_OF_MEMORY,
@@ -161,6 +166,7 @@ impl From<ErrorCode> for error_code {
             ErrorCode::InvalidOptions => sys::ERR_ERR_INVALID_OPTIONS,
             ErrorCode::InvalidLegacy => sys::ERR_ERR_INVALID_LEGACY,
             ErrorCode::InvalidState => sys::ERR_ERR_INVALID_STATE,
+            ErrorCode::Unenumerable => sys::ERR_ERR_UNENUMERABLE,
             ErrorCode::UnstablePosition => sys::ERR_ERR_UNSTABLE_POSITION,
             ErrorCode::SyncCounterMismatch => sys::ERR_ERR_SYNC_COUNTER_MISMATCH,
             ErrorCode::SyncCounterImpossibleReorder => sys::ERR_ERR_SYNC_COUNTER_IMPOSSIBLE_REORDER,

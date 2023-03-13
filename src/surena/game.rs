@@ -1,7 +1,7 @@
 //! This is a wrapper library for the game API of the game engine.
 
 pub use crate::sys::{
-    move_code, player_id, semver, MOVE_NONE, PLAYER_NONE, PLAYER_RAND, SEED_NONE, SYNC_CTR_DEFAULT,
+    move_code, player_id, semver, MOVE_NONE, PLAYER_NONE, PLAYER_RAND, SYNC_CTR_DEFAULT,
 };
 
 use crate::{
@@ -17,7 +17,6 @@ use crate::{
 
 use std::{
     ffi::{c_float, c_void},
-    num::NonZeroU64,
     ops::Deref,
     os::raw::c_char,
     ptr::{addr_of, addr_of_mut, null_mut},
@@ -109,7 +108,7 @@ macro_rules! surena_try {
 /// # Example
 /// See the `example` crate in the project root.
 pub trait GameMethods: Sized + Clone + Eq + Send {
-    /// Use [`MoveCode`] or [`BigMove`] here, depending on your move type.
+    /// Use [`MoveCode`] or [`MixedMove`] here, depending on your move type.
     type Move: MoveData;
 
     fn create(init_info: &GameInit) -> Result<Self>;
@@ -119,28 +118,24 @@ pub trait GameMethods: Sized + Clone + Eq + Send {
     fn export_state(&mut self, player: player_id, str_buf: &mut ValidCString) -> Result<()>;
     fn players_to_move(&mut self, players: &mut Vec<player_id>) -> Result<()>;
     fn get_concrete_moves(&mut self, player: player_id, moves: &mut Vec<Self::Move>) -> Result<()>;
-    fn get_move_data(
-        &mut self,
-        player: player_id,
-        string: &str,
-    ) -> Result<<<Self::Move as MoveData>::Rust as ToOwned>::Owned>;
+    fn get_move_data(&mut self, player: player_id, string: &str) -> Result<Self::Move>;
     fn get_move_str(
         &mut self,
         player: player_id,
-        mov: MoveDataSync<&<Self::Move as MoveData>::Rust>,
+        mov: MoveDataSync<<Self::Move as MoveData>::Rust<'_>>,
         str_buf: &mut ValidCString,
     ) -> Result<()>;
     fn make_move(
         &mut self,
         player: player_id,
-        mov: MoveDataSync<&<Self::Move as MoveData>::Rust>,
+        mov: MoveDataSync<<Self::Move as MoveData>::Rust<'_>>,
     ) -> Result<()>;
     fn get_results(&mut self, players: &mut Vec<player_id>) -> Result<()>;
     #[allow(clippy::wrong_self_convention)]
     fn is_legal_move(
         &mut self,
         player: player_id,
-        mov: MoveDataSync<&<Self::Move as MoveData>::Rust>,
+        mov: MoveDataSync<<Self::Move as MoveData>::Rust<'_>>,
     ) -> Result<()>;
 
     /// Must be implemented when [`GameFeatures::options`] is enabled.
@@ -152,15 +147,14 @@ pub trait GameMethods: Sized + Clone + Eq + Send {
     #[allow(unused_variables)]
     fn get_concrete_move_probabilities(
         &mut self,
-        player: player_id,
         move_probabilities: &mut Vec<c_float>,
     ) -> Result<()> {
         unimplemented!("get_concrete_move_probabilities")
     }
     /// Must be implemented when [`GameFeatures::random_moves`] is enabled.
     #[allow(unused_variables)]
-    fn discretize(&mut self, seed: NonZeroU64) -> Result<()> {
-        unimplemented!("discretize")
+    fn get_random_move(&mut self, seed: u64) -> Result<Self::Move> {
+        unimplemented!("get_random_move")
     }
     /// Must be implemented when [`GameFeatures::random_moves`] is enabled.
     #[allow(unused_variables)]
@@ -338,14 +332,13 @@ unsafe extern "C" fn get_concrete_moves_wrapped<G: GameMethods>(
 
 unsafe extern "C" fn get_concrete_move_probabilities_wrapped<G: GameMethods>(
     game: *mut sys::game,
-    player: player_id,
     ret_count: *mut u32,
     ret_move_probabilities: *mut *const c_float,
 ) -> sys::error_code {
     let (aux, game) = get_both::<G>(game);
     let prob_buf = &mut aux.float_buf;
     prob_buf.clear();
-    surena_try!(aux, game.get_concrete_move_probabilities(player, prob_buf));
+    surena_try!(aux, game.get_concrete_move_probabilities(prob_buf));
 
     ret_move_probabilities.write(prob_buf.as_ptr());
     ret_count.write(
@@ -354,6 +347,23 @@ unsafe extern "C" fn get_concrete_move_probabilities_wrapped<G: GameMethods>(
             .try_into()
             .expect("probability buffer too large"),
     );
+    sys::ERR_ERR_OK
+}
+
+unsafe extern "C" fn get_random_move_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    // TODO: Maybe use RNG here?
+    seed: u64,
+    ret_move: *mut *mut move_data_sync,
+) -> sys::error_code {
+    let (aux, game_data) = get_both::<G>(game);
+    let result = surena_try!(aux, game_data.get_random_move(seed));
+    aux.sync_buf = MoveDataSync {
+        md: result,
+        sync_ctr: *addr_of!((*game).sync_ctr),
+    };
+    ret_move.write(&mut aux.sync_buf as *mut MoveDataSync<G::Move> as *mut move_data_sync);
+
     sys::ERR_ERR_OK
 }
 
@@ -399,21 +409,6 @@ unsafe extern "C" fn get_results_wrapped<G: GameMethods>(
     sys::ERR_ERR_OK
 }
 
-unsafe extern "C" fn discretize_wrapped<G: GameMethods>(
-    game: *mut sys::game,
-    seed: u64,
-) -> sys::error_code {
-    assert_eq!(0, SEED_NONE);
-
-    let (aux, game) = get_both::<G>(game);
-    surena_try!(
-        aux,
-        game.discretize(seed.try_into().expect("discretize called with SEED_NONE"))
-    );
-
-    sys::ERR_ERR_OK
-}
-
 unsafe extern "C" fn redact_keep_state_wrapped<G: GameMethods>(
     game: *mut sys::game,
     count: u8,
@@ -438,7 +433,7 @@ unsafe extern "C" fn get_move_data_wrapped<G: GameMethods>(
     let string = cstr_to_rust_unchecked(string);
     let result = surena_try!(aux, game_data.get_move_data(player, string));
     aux.sync_buf = MoveDataSync {
-        md: result.into(),
+        md: result,
         sync_ctr: *addr_of!((*game).sync_ctr),
     };
     ret_move.write(&mut aux.sync_buf as *mut MoveDataSync<G::Move> as *mut move_data_sync);
@@ -486,42 +481,41 @@ unsafe extern "C" fn print_wrapped<G: GameMethods>(
 ///
 /// # Safety
 /// Implementors must be a `repr(transparent)` wrapper for [`move_data`].
-pub unsafe trait MoveData:
-    AsRef<Self::Rust>
-    + Deref<Target = move_data>
-    + From<<Self::Rust as ToOwned>::Owned>
-    + Default
-    + 'static
-{
+pub unsafe trait MoveData: Default {
     /// Borrowed Rust-equivalent of the wrapped [`move_data`].
-    type Rust: ?Sized + ToOwned;
+    type Rust<'l>
+    where
+        Self: 'l;
     /// Corresponds to [`game_feature_flags::big_moves`].
-    const IS_BIG: bool;
+    const BIG_MOVES: bool;
 
     /// Create a new, borrowed [`Self`] by wrapping the supplied move.
     ///
     /// # Safety
-    /// The mov must be valid and also represent a [`Self`].
+    /// The move must be valid and also represent a [`Self`].
     unsafe fn from_ref(mov: &move_data) -> &Self;
+
+    /// Return reference to [`Self`] as [`Self::Rust`].
+    fn to_rust(&self) -> Self::Rust<'_>;
 }
 
 /// [`move_data`] which is known to represent an owned move code.
 #[repr(transparent)]
+#[derive(Clone, Copy)]
 pub struct MoveCode(move_data);
 
 impl MoveCode {
     /// Create a new vector of [`move_code`]s from a slice of [`Self`].
     ///
-    /// This uses [`Self::as_ref`] and is mainly intended as a helper function
-    /// for writing tests.
+    /// It is mainly intended as a helper function for writing tests.
     pub fn slice_to_rust(s: &[Self]) -> Vec<move_code> {
-        s.iter().map(|m| *m.as_ref()).collect()
+        s.iter().map(|&m| m.into()).collect()
     }
 }
 
 unsafe impl MoveData for MoveCode {
-    type Rust = move_code;
-    const IS_BIG: bool = false;
+    type Rust<'l> = move_code;
+    const BIG_MOVES: bool = false;
 
     #[inline]
     unsafe fn from_ref(mov: &move_data) -> &Self {
@@ -529,12 +523,9 @@ unsafe impl MoveData for MoveCode {
         debug_assert!(mov.data.is_null());
         &*(mov as *const move_data as *const Self)
     }
-}
 
-impl AsRef<move_code> for MoveCode {
-    #[inline]
-    fn as_ref(&self) -> &move_code {
-        unsafe { &self.0.cl.code }
+    fn to_rust(&self) -> Self::Rust<'static> {
+        (*self).into()
     }
 }
 
@@ -544,6 +535,12 @@ impl Deref for MoveCode {
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl From<MoveCode> for move_code {
+    fn from(value: MoveCode) -> Self {
+        unsafe { value.cl.code }
     }
 }
 
@@ -563,37 +560,36 @@ impl Default for MoveCode {
     }
 }
 
-/// [`move_data`] which is known to represent an owned big move.
+/// [`move_data`] which is known to represent an owned mixed move.
 #[repr(transparent)]
-pub struct BigMove(move_data);
+pub struct MixedMove(move_data);
 
-unsafe impl MoveData for BigMove {
-    type Rust = [u8];
-    const IS_BIG: bool = true;
+unsafe impl MoveData for MixedMove {
+    type Rust<'l> = MixedMoveRust<'l>;
+    const BIG_MOVES: bool = true;
 
     #[inline]
     unsafe fn from_ref(mov: &move_data) -> &Self {
-        // Big moves must have data!=NULL.
-        debug_assert!(!mov.data.is_null());
         &*(mov as *const move_data as *const Self)
     }
-}
 
-impl AsRef<[u8]> for BigMove {
-    #[inline]
-    fn as_ref(&self) -> &[u8] {
+    fn to_rust(&self) -> Self::Rust<'_> {
         unsafe {
-            // len==0 for empty big moves.
-            if self.0.cl.len == 0 {
-                &[]
+            if self.data.is_null() {
+                MixedMoveRust::MoveCode(self.cl.code)
             } else {
-                from_raw_parts(self.0.data, self.0.cl.len)
+                // len==0 for empty big moves.
+                MixedMoveRust::BigMove(if self.cl.len == 0 {
+                    &[]
+                } else {
+                    from_raw_parts(self.data, self.cl.len)
+                })
             }
         }
     }
 }
 
-impl Deref for BigMove {
+impl Deref for MixedMove {
     type Target = move_data;
 
     #[inline]
@@ -602,7 +598,7 @@ impl Deref for BigMove {
     }
 }
 
-impl From<Vec<u8>> for BigMove {
+impl From<Vec<u8>> for MixedMove {
     fn from(value: Vec<u8>) -> Self {
         // Empty big moves must have data!=NULL, which is the case for slice
         // pointers.
@@ -614,17 +610,37 @@ impl From<Vec<u8>> for BigMove {
     }
 }
 
-impl Default for BigMove {
-    fn default() -> Self {
-        vec![].into()
+impl From<move_code> for MixedMove {
+    fn from(value: move_code) -> Self {
+        Self(move_data {
+            cl: move_data_cl { code: value },
+            data: null_mut(),
+        })
     }
 }
 
-impl Drop for BigMove {
-    fn drop(&mut self) {
-        let boxed: Box<[u8]> = unsafe { Box::from_raw(from_raw_parts_mut(self.data, self.cl.len)) };
-        drop(boxed);
+impl Default for MixedMove {
+    fn default() -> Self {
+        0.into()
     }
+}
+
+impl Drop for MixedMove {
+    fn drop(&mut self) {
+        // Only need to drop big moves.
+        if !self.data.is_null() {
+            let boxed: Box<[u8]> =
+                unsafe { Box::from_raw(from_raw_parts_mut(self.data, self.cl.len)) };
+            drop(boxed);
+        }
+    }
+}
+
+/// Enum for a borrowed [`move_data`] which could be a [`move_code`] or big
+/// move.
+pub enum MixedMoveRust<'l> {
+    MoveCode(move_code),
+    BigMove(&'l [u8]),
 }
 
 /// Create a new, borrowed [`MoveDataSync`] from a [`move_data_sync`].
@@ -633,9 +649,9 @@ impl Drop for BigMove {
 /// [`md`](move_data_sync::md).
 /// It reuses the buffer of a big move.
 #[inline]
-fn new_sync<M: MoveData>(mov: &move_data_sync) -> MoveDataSync<&M::Rust> {
+fn new_sync<M: MoveData>(mov: &move_data_sync) -> MoveDataSync<M::Rust<'_>> {
     MoveDataSync {
-        md: unsafe { M::from_ref(&mov.md).as_ref() },
+        md: unsafe { M::from_ref(&mov.md).to_rust() },
         sync_ctr: mov.sync_ctr,
     }
 }
@@ -703,7 +719,7 @@ impl GameFeatures {
 pub fn create_game_methods<G: GameMethods>(metadata: Metadata) -> game_methods {
     let mut features = metadata.features.feature_flags();
     features.set_error_strings(true);
-    features.set_big_moves(G::Move::IS_BIG);
+    features.set_big_moves(G::Move::BIG_MOVES);
 
     game_methods {
         game_name: metadata.game_name.into(),
@@ -713,11 +729,7 @@ pub fn create_game_methods<G: GameMethods>(metadata: Metadata) -> game_methods {
         features,
         get_last_error: Some(get_last_error_wrapped::<G>),
         create: Some(create_wrapped::<G>),
-        export_options: if metadata.features.options {
-            Some(export_options_wrapped::<G>)
-        } else {
-            None
-        },
+        export_options: Some(export_options_wrapped::<G>),
         destroy: Some(destroy_wrapped::<G>),
         clone: Some(clone_wrapped::<G>),
         copy_from: Some(copy_from_wrapped::<G>),
@@ -728,18 +740,14 @@ pub fn create_game_methods<G: GameMethods>(metadata: Metadata) -> game_methods {
         players_to_move: Some(players_to_move_wrapped::<G>),
         get_concrete_moves: Some(get_concrete_moves_wrapped::<G>),
         get_concrete_move_probabilities: Some(get_concrete_move_probabilities_wrapped::<G>),
+        get_random_move: Some(get_random_move_wrapped::<G>),
         is_legal_move: Some(is_legal_move_wrapped::<G>),
         make_move: Some(make_move_wrapped::<G>),
         get_results: Some(get_results_wrapped::<G>),
-        discretize: Some(discretize_wrapped::<G>),
         redact_keep_state: Some(redact_keep_state_wrapped::<G>),
         get_move_data: Some(get_move_data_wrapped::<G>),
         get_move_str: Some(get_move_str_wrapped::<G>),
-        print: if metadata.features.print {
-            Some(print_wrapped::<G>)
-        } else {
-            None
-        },
+        print: Some(print_wrapped::<G>),
         ..Default::default()
     }
 }

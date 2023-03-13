@@ -251,14 +251,14 @@ impl GameMethods for Nim {
     }
 
     /// The type of `mov` depends on [`Self::Move`].
-    fn is_legal_move(&mut self, player: player_id, mov: MoveDataSync<&u64>) -> Result<()> {
+    fn is_legal_move(&mut self, player: player_id, mov: MoveDataSync<u64>) -> Result<()> {
         if self.counter == 0 {
             return Err(Error::new_static(
                 ErrorCode::InvalidInput,
                 "game already over\0",
             ));
         }
-        if *mov.md == 0 {
+        if mov.md == 0 {
             return Err(Error::new_static(
                 ErrorCode::InvalidInput,
                 "need to subtract at least one\0",
@@ -270,12 +270,12 @@ impl GameMethods for Nim {
                 "this player is not to move\0",
             ));
         }
-        sub_too_large(*mov.md as Counter, self.counter)?;
+        sub_too_large(mov.md as Counter, self.counter)?;
         Ok(())
     }
 
-    fn make_move(&mut self, _player: player_id, mov: MoveDataSync<&u64>) -> Result<()> {
-        self.counter -= *mov.md as Counter;
+    fn make_move(&mut self, _player: player_id, mov: MoveDataSync<u64>) -> Result<()> {
+        self.counter -= mov.md as Counter;
         self.turn = !self.turn;
         Ok(())
     }
@@ -287,18 +287,18 @@ impl GameMethods for Nim {
         Ok(())
     }
 
-    fn get_move_data(&mut self, _player: player_id, string: &str) -> Result<u64> {
+    fn get_move_data(&mut self, _player: player_id, string: &str) -> Result<MoveCode> {
         let mov: Counter = string.parse().map_err(|e| {
             Error::new_dynamic(ErrorCode::InvalidInput, format!("move parsing error: {e}"))
         })?;
         sub_too_large(mov, self.max_sub)?;
-        Ok(mov.into())
+        Ok(move_code::from(mov).into())
     }
 
     fn get_move_str(
         &mut self,
         _player: player_id,
-        mov: MoveDataSync<&u64>,
+        mov: MoveDataSync<u64>,
         str_buf: &mut ValidCString,
     ) -> Result<()> {
         write!(str_buf, "{}", mov.md).expect("failed to write move buffer");
