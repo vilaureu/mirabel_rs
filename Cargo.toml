@@ -16,12 +16,12 @@ mirabel = []
 skia = ["skia-safe", "gl_generator", "mirabel"]
 
 [dependencies.skia-safe]
-version = "0.58"
+version = "0.60"
 features = ["gl", "x11"]
 optional = true
 
 [build-dependencies.bindgen]
-version = "0.63"
+version = "0.64"
 
 [build-dependencies.regex]
 version = "1.6"
