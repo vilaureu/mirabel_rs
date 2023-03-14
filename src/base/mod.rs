@@ -13,6 +13,8 @@ pub mod event;
 #[cfg(feature = "mirabel")]
 pub mod log;
 
+use std::slice::from_raw_parts;
+
 pub use string::*;
 
 /// Generic struct for creating [`move_data_sync`](sys::move_data_sync) wrappers.
@@ -49,6 +51,14 @@ impl<M> MoveDataSync<M> {
             sync_ctr: sys::SYNC_CTR_DEFAULT,
         }
     }
+
+    /// Apply `f` to the internal [`Self::md`].
+    pub(crate) fn map<R>(self, f: impl FnOnce(M) -> R) -> MoveDataSync<R> {
+        MoveDataSync {
+            md: f(self.md),
+            sync_ctr: self.sync_ctr,
+        }
+    }
 }
 
 impl<M: Into<sys::move_data>> From<MoveDataSync<M>> for sys::move_data_sync {
@@ -58,6 +68,17 @@ impl<M: Into<sys::move_data>> From<MoveDataSync<M>> for sys::move_data_sync {
             md: value.md.into(),
             sync_ctr: value.sync_ctr,
         }
+    }
+}
+
+/// Wrapper around [`from_raw_parts`].
+///
+/// This always safely returns an empty slice if `len` is zero.
+pub(crate) unsafe fn from_raw_hedged<'l, T>(pointer: *const T, len: usize) -> &'l [T] {
+    if len == 0 {
+        &[]
+    } else {
+        from_raw_parts(pointer, len)
     }
 }
 

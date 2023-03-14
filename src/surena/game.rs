@@ -7,6 +7,7 @@ pub use crate::sys::{
 use crate::{
     cstr_to_rust, cstr_to_rust_unchecked,
     error::{ErrorString, Result},
+    from_raw_hedged,
     game_init::GameInit,
     sys::{
         self, game_feature_flags, game_methods, move_data,
@@ -20,7 +21,7 @@ use std::{
     ops::Deref,
     os::raw::c_char,
     ptr::{addr_of, addr_of_mut, null_mut},
-    slice::{from_raw_parts, from_raw_parts_mut},
+    slice::from_raw_parts_mut,
 };
 
 /// This macro creates the `plugin_get_game_methods` function.
@@ -151,12 +152,28 @@ pub trait GameMethods: Sized + Clone + Eq + Send {
     ) -> Result<()> {
         unimplemented!("get_concrete_move_probabilities")
     }
+    /// Must be implemented when [`GameFeatures::hidden_information`] is enabled.
+    #[allow(unused_variables)]
+    fn get_actions(&mut self, player: player_id, moves: &mut Vec<Self::Move>) -> Result<()> {
+        unimplemented!("get_actions")
+    }
+    /// Must be implemented when [`GameFeatures::hidden_information`] is enabled.
+    #[allow(unused_variables)]
+    fn move_to_action(
+        &mut self,
+        player: player_id,
+        mov: MoveDataSync<<Self::Move as MoveData>::Rust<'_>>,
+        target_player: player_id,
+    ) -> Result<MoveDataSync<Self::Move>> {
+        unimplemented!("move_to_action")
+    }
     /// Must be implemented when [`GameFeatures::random_moves`] is enabled.
     #[allow(unused_variables)]
     fn get_random_move(&mut self, seed: u64) -> Result<Self::Move> {
         unimplemented!("get_random_move")
     }
-    /// Must be implemented when [`GameFeatures::random_moves`] is enabled.
+    /// Must be implemented when [`GameFeatures::random_moves`] or
+    /// [`GameFeatures::hidden_information`] is enabled.
     #[allow(unused_variables)]
     fn redact_keep_state(&mut self, players: &[player_id]) -> Result<()> {
         unimplemented!("redact_keep_state")
@@ -367,6 +384,43 @@ unsafe extern "C" fn get_random_move_wrapped<G: GameMethods>(
     sys::ERR_ERR_OK
 }
 
+unsafe extern "C" fn get_actions_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    player: player_id,
+    ret_count: *mut u32,
+    moves: *mut *const move_data,
+) -> sys::error_code {
+    let (aux, game) = get_both::<G>(game);
+    let move_buf = &mut aux.move_buf;
+    move_buf.clear();
+    surena_try!(aux, game.get_actions(player, move_buf));
+
+    let ptr: *const G::Move = move_buf.as_ptr();
+    moves.write(ptr.cast::<move_data>());
+    ret_count.write(move_buf.len().try_into().expect("move buffer too long"));
+
+    sys::ERR_ERR_OK
+}
+
+unsafe extern "C" fn move_to_action_wrapped<G: GameMethods>(
+    game: *mut sys::game,
+    player: player_id,
+    mov: move_data_sync,
+    target_player: player_id,
+    ret_action: *mut *mut move_data_sync,
+) -> sys::error_code {
+    let (aux, game) = get_both::<G>(game);
+    aux.sync_buf = surena_try!(
+        aux,
+        game.move_to_action(player, new_sync::<G::Move>(&mov), target_player)
+    )
+    .map(Into::into);
+
+    ret_action.write(&mut aux.sync_buf as *mut MoveDataSync<G::Move> as *mut move_data_sync);
+
+    sys::ERR_ERR_OK
+}
+
 unsafe extern "C" fn is_legal_move_wrapped<G: GameMethods>(
     game: *mut sys::game,
     player: player_id,
@@ -415,10 +469,8 @@ unsafe extern "C" fn redact_keep_state_wrapped<G: GameMethods>(
     players: *const player_id,
 ) -> sys::error_code {
     let (aux, game) = get_both::<G>(game);
-    surena_try!(
-        aux,
-        game.redact_keep_state(from_raw_parts(players, count.into()))
-    );
+    let players = from_raw_hedged(players, count.into());
+    surena_try!(aux, game.redact_keep_state(players));
 
     sys::ERR_ERR_OK
 }
@@ -579,11 +631,7 @@ unsafe impl MoveData for MixedMove {
                 MixedMoveRust::MoveCode(self.cl.code)
             } else {
                 // len==0 for empty big moves.
-                MixedMoveRust::BigMove(if self.cl.len == 0 {
-                    &[]
-                } else {
-                    from_raw_parts(self.data, self.cl.len)
-                })
+                MixedMoveRust::BigMove(from_raw_hedged(self.data, self.cl.len))
             }
         }
     }
@@ -694,6 +742,7 @@ pub struct Metadata {
 pub struct GameFeatures {
     pub options: bool,
     pub random_moves: bool,
+    pub hidden_information: bool,
     pub print: bool,
 }
 
@@ -741,6 +790,8 @@ pub fn create_game_methods<G: GameMethods>(metadata: Metadata) -> game_methods {
         get_concrete_moves: Some(get_concrete_moves_wrapped::<G>),
         get_concrete_move_probabilities: Some(get_concrete_move_probabilities_wrapped::<G>),
         get_random_move: Some(get_random_move_wrapped::<G>),
+        get_actions: Some(get_actions_wrapped::<G>),
+        move_to_action: Some(move_to_action_wrapped::<G>),
         is_legal_move: Some(is_legal_move_wrapped::<G>),
         make_move: Some(make_move_wrapped::<G>),
         get_results: Some(get_results_wrapped::<G>),
