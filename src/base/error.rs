@@ -13,18 +13,12 @@ use super::{
 /// This allows to have no error string ([`ErrorString::None`]), a static error
 /// string ([`ErrorString::Static`]), or a dynamic error string
 /// ([`ErrorString::Dynamic`]).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum ErrorString {
+    #[default]
     None,
     Static(ValidCStr<'static>),
     Dynamic(ValidCString),
-}
-
-impl Default for ErrorString {
-    #[inline]
-    fn default() -> Self {
-        ErrorString::None
-    }
 }
 
 impl From<&ErrorString> for *const c_char {
