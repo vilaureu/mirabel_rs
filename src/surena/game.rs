@@ -164,7 +164,7 @@ pub trait GameMethods: Sized + Clone + Eq + Send {
         player: player_id,
         mov: MoveDataSync<<Self::Move as MoveData>::Rust<'_>>,
         target_player: player_id,
-    ) -> Result<MoveDataSync<Self::Move>> {
+    ) -> Result<Self::Move> {
         unimplemented!("move_to_action")
     }
     /// Must be implemented when [`GameFeatures::random_moves`] is enabled.
@@ -409,12 +409,15 @@ unsafe extern "C" fn move_to_action_wrapped<G: GameMethods>(
     target_player: player_id,
     ret_action: *mut *mut move_data_sync,
 ) -> sys::error_code {
-    let (aux, game) = get_both::<G>(game);
-    aux.sync_buf = surena_try!(
+    let (aux, game_data) = get_both::<G>(game);
+    let result = surena_try!(
         aux,
-        game.move_to_action(player, new_sync::<G::Move>(&mov), target_player)
-    )
-    .map(Into::into);
+        game_data.move_to_action(player, new_sync::<G::Move>(&mov), target_player)
+    );
+    aux.sync_buf = MoveDataSync {
+        md: result,
+        sync_ctr: *addr_of!((*game).sync_ctr),
+    };
 
     ret_action.write(&mut aux.sync_buf as *mut MoveDataSync<G::Move> as *mut move_data_sync);
 

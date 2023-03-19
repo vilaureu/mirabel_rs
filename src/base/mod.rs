@@ -51,14 +51,6 @@ impl<M> MoveDataSync<M> {
             sync_ctr: sys::SYNC_CTR_DEFAULT,
         }
     }
-
-    /// Apply `f` to the internal [`Self::md`].
-    pub(crate) fn map<R>(self, f: impl FnOnce(M) -> R) -> MoveDataSync<R> {
-        MoveDataSync {
-            md: f(self.md),
-            sync_ctr: self.sync_ctr,
-        }
-    }
 }
 
 impl<M: Into<sys::move_data>> From<MoveDataSync<M>> for sys::move_data_sync {
