@@ -754,6 +754,8 @@ impl GameFeatures {
     fn feature_flags(&self) -> game_feature_flags {
         let mut flags = game_feature_flags::default();
         flags.set_options(self.options);
+        flags.set_random_moves(self.random_moves);
+        flags.set_hidden_information(self.hidden_information);
         flags.set_print(self.print);
         flags
     }
